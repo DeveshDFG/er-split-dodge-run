@@ -4,6 +4,7 @@
 #include <Windows.h>
 
 #include "dash_key_parse.hpp"
+#include "dash_pad_parse.hpp"
 
 #include <cstdio>
 #include <fstream>
@@ -25,6 +26,14 @@ struct ini_config {
     bool has_dash_key{ false };
     int dash_vk{ -1 };
     bool has_dash_vk{ false };
+    std::string dash_button;
+    bool has_dash_button{ false };
+    std::string gamepad_index_raw;
+    bool has_gamepad_index{ false };
+    int dash_trigger_threshold{ 80 };
+    bool has_dash_trigger_threshold{ false };
+    int left_stick_dash_deadzone{ 12000 };
+    bool has_left_stick_dash_deadzone{ false };
     bool enable_menu_patch{ false };
 };
 
@@ -178,11 +187,71 @@ inline ini_config read_ini(const std::string& ini_path) {
                 cfg.dash_vk = static_cast<int>(parsed);
                 cfg.has_dash_vk = true;
             }
+        } else if (key_lower == "dash_button") {
+            cfg.dash_button = value;
+            cfg.has_dash_button = !value.empty();
+        } else if (key_lower == "gamepad_index") {
+            cfg.gamepad_index_raw = value;
+            cfg.has_gamepad_index = !value.empty();
+        } else if (key_lower == "dash_trigger_threshold") {
+            char* end = nullptr;
+            const unsigned long parsed = std::strtoul(value.c_str(), &end, 10);
+            if (end != value.c_str()) {
+                int threshold = static_cast<int>(parsed);
+                if (threshold < 0) {
+                    threshold = 0;
+                }
+                if (threshold > 255) {
+                    threshold = 255;
+                }
+                cfg.dash_trigger_threshold = threshold;
+                cfg.has_dash_trigger_threshold = true;
+            }
+        } else if (key_lower == "left_stick_dash_deadzone") {
+            char* end = nullptr;
+            const unsigned long parsed = std::strtoul(value.c_str(), &end, 10);
+            if (end != value.c_str()) {
+                int deadzone = static_cast<int>(parsed);
+                if (deadzone < 0) {
+                    deadzone = 0;
+                }
+                if (deadzone > 32767) {
+                    deadzone = 32767;
+                }
+                cfg.left_stick_dash_deadzone = deadzone;
+                cfg.has_left_stick_dash_deadzone = true;
+            }
         } else if (key_lower == "enable_menu_patch") {
             cfg.enable_menu_patch = parse_bool(value, false);
         }
     }
     return cfg;
+}
+
+inline dash_pad_parse::parsed_dash_button
+parse_active_dash_button(const ini_config& cfg) {
+    if (!cfg.has_dash_button) {
+        return {};
+    }
+    dash_pad_parse::parsed_dash_button parsed =
+        dash_pad_parse::parse_dash_button(cfg.dash_button);
+    if (!parsed.ok) {
+        parsed.configured = true;
+        parsed.normalized_name = cfg.dash_button;
+    }
+    return parsed;
+}
+
+inline dash_pad_parse::gamepad_select
+parse_active_gamepad_index(const ini_config& cfg) {
+    if (!cfg.has_gamepad_index) {
+        return dash_pad_parse::gamepad_select::any;
+    }
+    const auto parsed = dash_pad_parse::parse_gamepad_index(cfg.gamepad_index_raw);
+    if (!parsed) {
+        return dash_pad_parse::gamepad_select::any;
+    }
+    return *parsed;
 }
 
 inline std::optional<er_dash_key_parse::parsed_dash_key>
