@@ -4441,8 +4441,10 @@ function GetEvasionRequest()
         return ATTACK_REQUEST_INVALID
     end
     if ERSPLIT_SUPPRESS_RELEASE_ROLL == 1 and env(ActionRequest, ACTION_ARM_ROLLING) == TRUE then
-        ERSPLIT_SUPPRESS_RELEASE_ROLL = 0
         ERSplit_Log("SuppressReleaseRoll")
+        if ERSPLIT_PRESS_ROLL_LOCKOUT ~= 1 and ERSPLIT_PRESS_ROLL_REARM_REQUIRED ~= 1 then
+            ERSPLIT_SUPPRESS_RELEASE_ROLL = 0
+        end
         return ATTACK_REQUEST_INVALID
     end
     if env(ActionRequest, ACTION_ARM_ROLLING) == TRUE then
@@ -4589,12 +4591,12 @@ function ERSplit_ExecPressRoll(estep)
     act(SetNpcAIAttackRequestIDAfterBlend, env(GetNpcAIAttackRequestID))
     SetAIActionState()
 
+    ERSplit_RefreshPressRollLockout()
+
     return TRUE
 end
 
 function ExecEvasion(backstep_limit, estep, is_usechainrecover)
-    ERSplit_Log("ExecEvasion|has=" .. c_HasActionRequest .. "|pending=" .. ERSPLIT_PRESS_ROLL_PENDING)
-
     if ERSPLIT_PRESS_ROLL_PENDING == 1 then
         ERSPLIT_PRESS_ROLL_PENDING = 0
         ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
@@ -18223,6 +18225,16 @@ end
 
 function SpeedUpdate()
     local stick_level = GetVariable("MoveSpeedLevel")
+    ERSplit_TraceActionArms("SpeedUpdate")
+    local dash_held = ERSplit_IsDashHeld()
+
+    if dash_held == FALSE and stick_level > 1 then
+        stick_level = 1
+    end
+    if dash_held == TRUE and GetVariable("MoveSpeedLevel") > 0.10000000149011612 then
+        stick_level = 2
+    end
+
     local move_angle = GetVariable("MoveAngle")
     local is_aim = env(IsPrecisionShoot)
     local is_lockon = GetVariable("IsLockon")
@@ -18275,8 +18287,8 @@ function SpeedUpdate()
             runLevel = 0.4000000059604645
         end
 
-        -- Sprint (stick + O)
-        if stick_level > 1.100000023841858 then
+        -- Sprint (stick + dash bind only; dodge hold must not sprint)
+        if stick_level > 1.100000023841858 and dash_held == TRUE then
             if env(GetSpEffectID, 100020) == TRUE then
                 ChangeMoveSpeedIndex(1)
                 SetVariable("ToggleDash", 0)
@@ -26673,19 +26685,48 @@ SetTurnAnimCorrectionRate = 9105 -- args: <degrees>
 Unknown9999 = 9999 -- args: <value> # 1, 2, 3
 
 ------------------------------------------
--- ER split bind: press-roll on combined dodge (ACTION_ARM_SP_MOVE)
+-- ER split bind: press-roll + dash sprint separation
 ------------------------------------------
 ERSPLIT_SP_WAS_HELD = 0
 ERSPLIT_PRESS_ROLL_PENDING = 0
 ERSPLIT_SUPPRESS_RELEASE_ROLL = 0
+ERSPLIT_PRESS_ROLL_LOCKOUT = 0
+ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES = 0
+ERSPLIT_PRESS_ROLL_LOCKOUT_LIGHT = 38
+ERSPLIT_PRESS_ROLL_LOCKOUT_MEDIUM = 38
+ERSPLIT_PRESS_ROLL_LOCKOUT_HEAVY = 46
+ERSPLIT_PRESS_ROLL_LOCKOUT_SUPERLIGHT = 34
+ERSPLIT_PRESS_ROLL_LOCKOUT_OVERWEIGHT = 46
+ERSPLIT_PRESS_ROLL_LOCKOUT_WEIGHT_NAME = "medium"
+ERSPLIT_PRESS_ROLL_REARM_REQUIRED = 0
+ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = 0
+ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES_REQUIRED = 3
+ERSPLIT_PRESS_ROLL_UPDATE_TICK = 0
 ERSPLIT_LOG_ON = 1
 ERSPLIT_LOG_COUNT = 0
+ERSPLIT_LOG_MAX = 500
+ERSPLIT_ARM_TRACE_ON = 0
+ERSPLIT_ARM_TRACE_COUNT = 0
+ERSPLIT_ARM_TRACE_MAX = 120
+
+function ERSplit_InitPressRollTrace()
+    if ERSPLIT_LOG_ON ~= 1 then
+        return
+    end
+    ERSPLIT_LOG_COUNT = 0
+    local f = io.open("ERSplitPressRollTrace.txt", "w")
+    if f then
+        f:write("TRACE_START\n")
+        f:write("HKS_PRESSROLL_LOG_CANARY\n")
+        io.close(f)
+    end
+end
 
 function ERSplit_Log(text)
     if ERSPLIT_LOG_ON ~= 1 then
         return
     end
-    if ERSPLIT_LOG_COUNT > 80 then
+    if ERSPLIT_LOG_COUNT >= ERSPLIT_LOG_MAX then
         return
     end
     ERSPLIT_LOG_COUNT = ERSPLIT_LOG_COUNT + 1
@@ -26697,7 +26738,140 @@ function ERSplit_Log(text)
     end
 end
 
+function ERSplit_DashArmLog(text)
+    if ERSPLIT_ARM_TRACE_ON ~= 1 then
+        return
+    end
+    if ERSPLIT_ARM_TRACE_COUNT >= ERSPLIT_ARM_TRACE_MAX then
+        return
+    end
+    ERSPLIT_ARM_TRACE_COUNT = ERSPLIT_ARM_TRACE_COUNT + 1
+
+    local f = io.open("ERSplitDashArmTrace.txt", "a")
+    if f then
+        f:write(text .. "\n")
+        io.close(f)
+    end
+end
+
+function ERSplit_TraceActionArms(tag)
+    for i = 0, 40 do
+        local req = env(ActionRequest, i)
+        local cancel = env(ActionCancelRequest, i)
+        local dur = env(ActionDuration, i)
+        local active = FALSE
+        if req == TRUE or req == 1 or cancel == TRUE or cancel == 1 or dur > 0 then
+            active = TRUE
+        end
+        if active == TRUE then
+            ERSplit_DashArmLog(tag .. "|arm=" .. i .. "|req=" .. req .. "|cancel=" .. cancel .. "|dur=" .. dur)
+        end
+    end
+end
+
+function ERSplit_IsDashHeld()
+    if ERSplit_IsDashHeldNative ~= nil then
+        if ERSplit_IsDashHeldNative() == 1 then
+            return TRUE
+        end
+    end
+    return FALSE
+end
+
+function ERSplit_GetPressRollLockoutFrames()
+    SetWeightIndex()
+    local evasion_weight = GetVariable("EvasionWeightIndex")
+    local frames = ERSPLIT_PRESS_ROLL_LOCKOUT_MEDIUM
+    local weight_name = "medium"
+
+    if evasion_weight == EVASION_WEIGHT_INDEX_SUPERLIGHT then
+        frames = ERSPLIT_PRESS_ROLL_LOCKOUT_SUPERLIGHT
+        weight_name = "superlight"
+    elseif evasion_weight == EVASION_WEIGHT_INDEX_LIGHT then
+        frames = ERSPLIT_PRESS_ROLL_LOCKOUT_LIGHT
+        weight_name = "light"
+    elseif evasion_weight == EVASION_WEIGHT_INDEX_MEDIUM then
+        frames = ERSPLIT_PRESS_ROLL_LOCKOUT_MEDIUM
+        weight_name = "medium"
+    elseif evasion_weight == EVASION_WEIGHT_INDEX_HEAVY then
+        frames = ERSPLIT_PRESS_ROLL_LOCKOUT_HEAVY
+        weight_name = "heavy"
+    elseif evasion_weight == EVASION_WEIGHT_INDEX_OVERWEIGHT then
+        frames = ERSPLIT_PRESS_ROLL_LOCKOUT_OVERWEIGHT
+        weight_name = "overweight"
+    end
+
+    ERSPLIT_PRESS_ROLL_LOCKOUT_WEIGHT_NAME = weight_name
+    ERSplit_Log("PressRollLockoutFrames weight=" .. weight_name .. " index=" .. evasion_weight .. " frames="
+        .. frames)
+    return frames
+end
+
+function ERSplit_EndPressRollLockout(reason)
+    if ERSPLIT_PRESS_ROLL_LOCKOUT ~= 1 then
+        return
+    end
+    ERSPLIT_PRESS_ROLL_LOCKOUT = 0
+    ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES = 0
+    ERSplit_Log("PressRollLockoutEnd reason=" .. reason)
+    if reason == "timeout" then
+        ERSPLIT_PRESS_ROLL_REARM_REQUIRED = 1
+        ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = 0
+        ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
+        ERSplit_Log("PressRollRearmStart")
+    end
+end
+
+function ERSplit_TickPressRollRearm(held)
+    if ERSPLIT_PRESS_ROLL_REARM_REQUIRED ~= 1 then
+        return
+    end
+
+    if held == 1 then
+        ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = 0
+        ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
+        return
+    end
+
+    ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES + 1
+    ERSplit_Log("PressRollRearmNeutral frames=" .. ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES)
+
+    if ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES >= ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES_REQUIRED then
+        ERSPLIT_PRESS_ROLL_REARM_REQUIRED = 0
+        ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = 0
+        ERSPLIT_SUPPRESS_RELEASE_ROLL = 0
+        ERSplit_Log("PressRollRearmComplete")
+    end
+end
+
+function ERSplit_RefreshPressRollLockout()
+    if ERSPLIT_PRESS_ROLL_LOCKOUT ~= 1 then
+        return
+    end
+    local lockout_frames = ERSplit_GetPressRollLockoutFrames()
+    if ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES < lockout_frames then
+        ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES = lockout_frames
+    end
+end
+
+function ERSplit_TickPressRollLockout()
+    if ERSPLIT_PRESS_ROLL_LOCKOUT ~= 1 then
+        return
+    end
+
+    if ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES > 0 then
+        ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES = ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES - 1
+    end
+
+    if ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES <= 0 then
+        ERSplit_EndPressRollLockout("timeout")
+    end
+end
+
 function ERSplit_UpdatePressRollState()
+    ERSplit_TickPressRollLockout()
+    ERSPLIT_PRESS_ROLL_UPDATE_TICK = ERSPLIT_PRESS_ROLL_UPDATE_TICK + 1
+
     local dur = env(ActionDuration, ACTION_ARM_SP_MOVE)
     local msl = GetVariable("MoveSpeedLevel")
     local held = 0
@@ -26705,22 +26879,34 @@ function ERSplit_UpdatePressRollState()
         held = 1
     end
 
-    if dur > 0 or ERSPLIT_SP_WAS_HELD == 1 then
-        ERSplit_Log("UpdatePress|dur=" .. dur .. "|msl=" .. msl .. "|was=" .. ERSPLIT_SP_WAS_HELD
-            .. "|pending=" .. ERSPLIT_PRESS_ROLL_PENDING .. "|suppress=" .. ERSPLIT_SUPPRESS_RELEASE_ROLL
-            .. "|has=" .. c_HasActionRequest)
-    end
+    ERSplit_TickPressRollRearm(held)
 
     if held == 1 and ERSPLIT_SP_WAS_HELD == 0 then
+        ERSplit_Log("PressEdgeDetected frame=" .. ERSPLIT_PRESS_ROLL_UPDATE_TICK .. "|dur=" .. dur
+            .. "|msl=" .. msl)
         if GetVariable("MoveSpeedLevel") >= 0.10000000149011612 then
-            ERSPLIT_PRESS_ROLL_PENDING = 1
-            ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
-            ERSplit_Log("SetPendingRoll|dur=" .. dur .. "|msl=" .. msl)
+            if ERSPLIT_PRESS_ROLL_LOCKOUT == 1 then
+                ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
+                ERSplit_Log("PressRollBlockedLockout frames_remaining=" .. ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES)
+            elseif ERSPLIT_PRESS_ROLL_REARM_REQUIRED == 1 then
+                ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
+            else
+                local lockout_frames = ERSplit_GetPressRollLockoutFrames()
+                ERSPLIT_PRESS_ROLL_PENDING = 1
+                ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
+                ERSPLIT_PRESS_ROLL_LOCKOUT = 1
+                ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES = lockout_frames
+                ERSplit_Log("PressRollLockoutStart reason=press_detected weight="
+                    .. ERSPLIT_PRESS_ROLL_LOCKOUT_WEIGHT_NAME .. " frames=" .. lockout_frames)
+                ERSplit_Log("PressRollPendingSet")
+            end
         end
     end
 
     ERSPLIT_SP_WAS_HELD = held
 end
+
+ERSplit_InitPressRollTrace()
 
 ------------------------------------------
 -- Must be last for the global variables to be read

@@ -1,0 +1,19 @@
+# Normal gameplay ME3 profile — no libER.dll required.
+# Sprint: separate_roll_and_sprint.dll + separate_roll_and_sprint.ini + HKS.
+
+[[natives]]
+path = "bind/separate_roll_and_sprint.dll"
+
+[[packages]]
+id = "bind"
+path = "bind"
+
+[[packages]]
+id = "bind/mod"
+path = "bind/mod"
+
+# Optional menu param experiment (NOT for normal play):
+# [[natives]]
+# path = "bind/libER.dll"
+# [[natives]]
+# path = "bind/libER_key_assign_dash_menu_diag.dll"

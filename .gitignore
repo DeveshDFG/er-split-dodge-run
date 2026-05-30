@@ -12,6 +12,8 @@ libER/
 *.log
 ERSplit*.txt
 ERKeyAssign*.txt
+separate_roll_and_sprint.log
+native/build/
 
 # Build output
 build/
