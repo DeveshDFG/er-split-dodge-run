@@ -1,0 +1,32 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local research/reference files
+*.pdf
+
+# Vendored/local experiment workspace
+libER/
+
+# Runtime/debug output
+*.log
+ERSplit*.txt
+ERKeyAssign*.txt
+
+# Build output
+build/
+out/
+bin/
+obj/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.slnx
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
