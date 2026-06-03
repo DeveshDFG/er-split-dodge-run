@@ -62,6 +62,16 @@ enable_menu_patch=0
 | `gamepad_index` | `any` (players 0–3) or `0`–`3`. |
 | `left_stick_dash_deadzone` | Stick magnitude below this = neutral (crouch path on controller). |
 
+### Roll direction (after-attack)
+
+Movement keys default to **WASD** for after-attack roll direction sampling. Arrow keys are also supported internally. You do not need to configure movement keys in the INI for normal use.
+
+Advanced users can add `move_forward`, `move_back`, `move_left`, and `move_right` manually if they use custom keyboard movement binds (see the commented advanced section in `separate_roll_and_sprint.ini`).
+
+Controller movement is read from the **XInput left stick** and does not require INI movement keys. Optional `movement_stick_deadzone` (default `12000`) is documented in that advanced section for controller tuning.
+
+**Future research (not required for release):** discover where Elden Ring stores live keyboard movement bindings so the DLL could read in-game binds automatically. Until then, WASD defaults with optional manual override are sufficient.
+
 **Controller `dash_button` behavior:** Native code stick-gates sprint. Button held + neutral stick -> HKS crouch/stealth toggle (with lockout/rearm). Button held + tilted stick -> sprint. After controller sprint release, HKS applies a short reactivation cooldown (`ERSPLIT_CONTROLLER_SPRINT_COOLDOWN_FRAMES` in `c0000.hks`, default 6); keyboard sprint is unaffected. Avoid binding the same physical button elsewhere in-game.
 
 ### Controller note (XInput)

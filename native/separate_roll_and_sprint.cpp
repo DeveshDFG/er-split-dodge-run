@@ -15,6 +15,7 @@
 #include <atomic>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -34,6 +35,14 @@ constexpr const char* kNativeDashLeftStickClick = "ERSplit_IsDashLeftStickClickN
 constexpr const char* kNativeDashButtonNeutralHeld = "ERSplit_IsDashButtonNeutralHeldNative";
 constexpr const char* kNativeDashButtonConfigured = "ERSplit_IsDashButtonConfiguredNative";
 constexpr const char* kNativeDashButtonPressed = "ERSplit_IsDashButtonPressedNative";
+constexpr const char* kNativeMoveInputHeld = "ERSplit_IsMoveInputHeldNative";
+constexpr const char* kNativeMoveInputAngle = "ERSplit_GetMoveInputAngleNative";
+constexpr const char* kNativeMoveBuildId = "ERSplit_GetNativeMoveBuildIdNative";
+constexpr const char* kNativeMoveDebug = "ERSplit_GetNativeMoveDebugNative";
+constexpr const char* kNativeKeyboardMoveHeld = "ERSplit_IsKeyboardMoveInputHeldNative";
+constexpr const char* kNativeControllerMoveHeld = "ERSplit_IsControllerMoveInputHeldNative";
+constexpr int kNativeMoveBuildIdValue = 2;
+constexpr const char* kNativeMoveFeatureTag = "move_input_v2";
 constexpr int kHotkeyReloadIni = VK_F10;
 
 std::mutex g_log_mutex;
@@ -49,8 +58,14 @@ dash_pad_parse::parsed_dash_button g_active_dash_button{};
 dash_pad_parse::gamepad_select g_gamepad_select{ dash_pad_parse::gamepad_select::any };
 int g_trigger_threshold{ 80 };
 int g_left_stick_dash_deadzone{ 12000 };
+int g_movement_stick_deadzone{ 12000 };
 bool g_dash_button_is_left_stick_click{ false };
 bool g_dash_button_configured{ false };
+
+er_dash_key_parse::parsed_dash_key g_move_forward{};
+er_dash_key_parse::parsed_dash_key g_move_back{};
+er_dash_key_parse::parsed_dash_key g_move_left{};
+er_dash_key_parse::parsed_dash_key g_move_right{};
 
 std::atomic<int> g_last_logged_keyboard_held{ -1 };
 std::atomic<int> g_last_logged_button_held{ -1 };
@@ -140,6 +155,27 @@ bool load_dash_config_from_ini(std::ostringstream& boot, const bridge_config::in
     g_left_stick_dash_deadzone = cfg.has_left_stick_dash_deadzone
         ? cfg.left_stick_dash_deadzone
         : 12000;
+    g_movement_stick_deadzone = cfg.has_movement_stick_deadzone
+        ? cfg.movement_stick_deadzone
+        : 12000;
+
+    g_move_forward = bridge_config::parse_movement_key(
+        cfg.has_move_forward ? cfg.move_forward : std::string{}, "W");
+    g_move_back = bridge_config::parse_movement_key(
+        cfg.has_move_back ? cfg.move_back : std::string{}, "S");
+    g_move_left = bridge_config::parse_movement_key(
+        cfg.has_move_left ? cfg.move_left : std::string{}, "A");
+    g_move_right = bridge_config::parse_movement_key(
+        cfg.has_move_right ? cfg.move_right : std::string{}, "D");
+
+    boot << "movement_keys forward=" << g_move_forward.normalized_name
+         << " back=" << g_move_back.normalized_name << " left=" << g_move_left.normalized_name
+         << " right=" << g_move_right.normalized_name << '\n';
+    boot << "movement_keys_ok forward=" << g_move_forward.ok << " back=" << g_move_back.ok
+         << " left=" << g_move_left.ok << " right=" << g_move_right.ok << '\n';
+    boot << "movement_stick_deadzone=" << g_movement_stick_deadzone << '\n';
+    boot << "native_move_build_id=" << kNativeMoveBuildIdValue << " feature=" << kNativeMoveFeatureTag
+         << '\n';
 
     bool key_ok = false;
     if (cfg.has_dash_key || cfg.has_dash_vk) {
@@ -225,6 +261,20 @@ bool query_button_pressed(int& pad_index) {
     return result.dash_held || result.neutral_held;
 }
 
+dash_pad_parse::move_input_probe probe_move_input_state() {
+    return dash_pad_parse::probe_move_input(g_move_forward, g_move_back, g_move_left,
+        g_move_right, g_gamepad_select, g_movement_stick_deadzone);
+}
+
+std::optional<float> query_move_input_angle_degrees() {
+    const dash_pad_parse::move_input_probe probe = probe_move_input_state();
+    const auto vec = dash_pad_parse::select_move_vector(probe);
+    if (!vec) {
+        return std::nullopt;
+    }
+    return dash_pad_parse::move_vector_to_roll_angle_degrees(*vec);
+}
+
 void log_keyboard_transition(bool held) {
     const int held_i = held ? 1 : 0;
     const int prev = g_last_logged_keyboard_held.exchange(held_i);
@@ -282,6 +332,10 @@ void log_input_transitions() {
 
 void push_number(HksState* state, bool value) {
     g_hks_lua_pushnumber(state, value ? 1.f : 0.f);
+}
+
+void push_number(HksState* state, float value) {
+    g_hks_lua_pushnumber(state, value);
 }
 
 bool poll_hotkey_edge(int vk, std::atomic<bool>& was_down) {
@@ -361,6 +415,63 @@ int lua_ERSplit_IsDashHeldNative(HksState* state) {
     return 1;
 }
 
+int lua_ERSplit_IsMoveInputHeldNative(HksState* state) {
+    if (!g_hks_lua_pushnumber) {
+        return 0;
+    }
+    const auto angle = query_move_input_angle_degrees();
+    push_number(state, angle.has_value());
+    return 1;
+}
+
+int lua_ERSplit_GetMoveInputAngleNative(HksState* state) {
+    if (!g_hks_lua_pushnumber) {
+        return 0;
+    }
+    const auto angle = query_move_input_angle_degrees();
+    push_number(state, angle.value_or(0.f));
+    return 1;
+}
+
+int lua_ERSplit_GetNativeMoveBuildIdNative(HksState* state) {
+    if (!g_hks_lua_pushnumber) {
+        return 0;
+    }
+    push_number(state, static_cast<float>(kNativeMoveBuildIdValue));
+    return 1;
+}
+
+int lua_ERSplit_GetNativeMoveDebugNative(HksState* state) {
+    if (!g_hks_lua_pushnumber) {
+        return 0;
+    }
+    const dash_pad_parse::move_input_probe probe = probe_move_input_state();
+    if (!probe.movement_keys_ok) {
+        push_number(state, 0.f);
+        return 1;
+    }
+    push_number(state, static_cast<float>(dash_pad_parse::move_debug_code(probe)));
+    return 1;
+}
+
+int lua_ERSplit_IsKeyboardMoveInputHeldNative(HksState* state) {
+    if (!g_hks_lua_pushnumber) {
+        return 0;
+    }
+    const dash_pad_parse::move_input_probe probe = probe_move_input_state();
+    push_number(state, probe.movement_keys_ok && probe.keyboard_valid);
+    return 1;
+}
+
+int lua_ERSplit_IsControllerMoveInputHeldNative(HksState* state) {
+    if (!g_hks_lua_pushnumber) {
+        return 0;
+    }
+    const dash_pad_parse::move_input_probe probe = probe_move_input_state();
+    push_number(state, probe.stick_valid);
+    return 1;
+}
+
 void register_native_global(HksState* state) {
     if (!g_hks_addnamedcclosure) {
         return;
@@ -381,6 +492,18 @@ void register_native_global(HksState* state) {
             reinterpret_cast<void*>(&lua_ERSplit_IsDashButtonConfiguredNative) },
         { kNativeDashButtonPressed,
             reinterpret_cast<void*>(&lua_ERSplit_IsDashButtonPressedNative) },
+        { kNativeMoveInputHeld,
+            reinterpret_cast<void*>(&lua_ERSplit_IsMoveInputHeldNative) },
+        { kNativeMoveInputAngle,
+            reinterpret_cast<void*>(&lua_ERSplit_GetMoveInputAngleNative) },
+        { kNativeMoveBuildId,
+            reinterpret_cast<void*>(&lua_ERSplit_GetNativeMoveBuildIdNative) },
+        { kNativeMoveDebug,
+            reinterpret_cast<void*>(&lua_ERSplit_GetNativeMoveDebugNative) },
+        { kNativeKeyboardMoveHeld,
+            reinterpret_cast<void*>(&lua_ERSplit_IsKeyboardMoveInputHeldNative) },
+        { kNativeControllerMoveHeld,
+            reinterpret_cast<void*>(&lua_ERSplit_IsControllerMoveInputHeldNative) },
     };
     for (const auto& entry : natives) {
         g_hks_addnamedcclosure(state, entry.name, entry.func);
@@ -390,7 +513,10 @@ void register_native_global(HksState* state) {
                    "names=ERSplit_IsDashHeldNative,ERSplit_IsDashKeyHeldNative,"
                    "ERSplit_IsDashButtonHeldNative,ERSplit_IsDashButtonNeutralHeldNative,"
                    "ERSplit_IsDashButtonConfiguredNative,ERSplit_IsDashButtonPressedNative,"
-                   "ERSplit_IsDashLeftStickClickNative");
+                   "ERSplit_IsDashLeftStickClickNative,ERSplit_IsMoveInputHeldNative,"
+                   "ERSplit_GetMoveInputAngleNative,ERSplit_GetNativeMoveBuildIdNative,"
+                   "ERSplit_GetNativeMoveDebugNative,ERSplit_IsKeyboardMoveInputHeldNative,"
+                   "ERSplit_IsControllerMoveInputHeldNative");
     }
 }
 
@@ -493,8 +619,13 @@ DWORD WINAPI bridge_thread(LPVOID param) {
          << "native_globals=" << kNativeDashHeld << "," << kNativeDashKeyHeld << ","
          << kNativeDashButtonHeld << "," << kNativeDashButtonNeutralHeld << ","
          << kNativeDashButtonConfigured << "," << kNativeDashButtonPressed << ","
-         << kNativeDashLeftStickClick << '\n'
-         << "poll=keyboard GetAsyncKeyState + XInput dash_button\n"
+         << kNativeDashLeftStickClick << "," << kNativeMoveInputHeld << ","
+         << kNativeMoveInputAngle << "," << kNativeMoveBuildId << ","
+         << kNativeMoveDebug << "," << kNativeKeyboardMoveHeld << ","
+         << kNativeControllerMoveHeld << '\n'
+         << "native_move_build_id=" << kNativeMoveBuildIdValue << " feature="
+         << kNativeMoveFeatureTag << '\n'
+         << "poll=keyboard GetAsyncKeyState + XInput dash_button + movement_input\n"
          << "startup_checkpoint_complete sprint_only=1\n";
 
     write_log_header(boot.str());

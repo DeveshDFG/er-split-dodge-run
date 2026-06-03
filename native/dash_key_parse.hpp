@@ -11,7 +11,7 @@ namespace er_dash_key_parse {
 
 inline constexpr const char* kSupportedKeysList =
     "LeftShift, RightShift, Shift, LeftCtrl, RightCtrl, Ctrl, LeftAlt, RightAlt, "
-    "Alt, Space, F, A-Z, 0-9";
+    "Alt, Space, F, A-Z, 0-9, ArrowUp, ArrowDown, ArrowLeft, ArrowRight";
 
 enum class poll_kind {
     single,
@@ -113,6 +113,18 @@ inline parsed_dash_key parse_dash_key(std::string name) {
     }
     if (key == "f") {
         return single(0x46, "F");
+    }
+    if (key == "arrowup" || key == "uparrow") {
+        return single(VK_UP, "ArrowUp");
+    }
+    if (key == "arrowdown" || key == "downarrow") {
+        return single(VK_DOWN, "ArrowDown");
+    }
+    if (key == "arrowleft" || key == "leftarrow") {
+        return single(VK_LEFT, "ArrowLeft");
+    }
+    if (key == "arrowright" || key == "rightarrow") {
+        return single(VK_RIGHT, "ArrowRight");
     }
 
     if (name.size() == 1) {

@@ -34,6 +34,16 @@ struct ini_config {
     bool has_dash_trigger_threshold{ false };
     int left_stick_dash_deadzone{ 12000 };
     bool has_left_stick_dash_deadzone{ false };
+    std::string move_forward{ "W" };
+    bool has_move_forward{ false };
+    std::string move_back{ "S" };
+    bool has_move_back{ false };
+    std::string move_left{ "A" };
+    bool has_move_left{ false };
+    std::string move_right{ "D" };
+    bool has_move_right{ false };
+    int movement_stick_deadzone{ 12000 };
+    bool has_movement_stick_deadzone{ false };
     bool enable_menu_patch{ false };
 };
 
@@ -221,6 +231,32 @@ inline ini_config read_ini(const std::string& ini_path) {
                 cfg.left_stick_dash_deadzone = deadzone;
                 cfg.has_left_stick_dash_deadzone = true;
             }
+        } else if (key_lower == "move_forward") {
+            cfg.move_forward = value;
+            cfg.has_move_forward = !value.empty();
+        } else if (key_lower == "move_back") {
+            cfg.move_back = value;
+            cfg.has_move_back = !value.empty();
+        } else if (key_lower == "move_left") {
+            cfg.move_left = value;
+            cfg.has_move_left = !value.empty();
+        } else if (key_lower == "move_right") {
+            cfg.move_right = value;
+            cfg.has_move_right = !value.empty();
+        } else if (key_lower == "movement_stick_deadzone") {
+            char* end = nullptr;
+            const unsigned long parsed = std::strtoul(value.c_str(), &end, 10);
+            if (end != value.c_str()) {
+                int deadzone = static_cast<int>(parsed);
+                if (deadzone < 0) {
+                    deadzone = 0;
+                }
+                if (deadzone > 32767) {
+                    deadzone = 32767;
+                }
+                cfg.movement_stick_deadzone = deadzone;
+                cfg.has_movement_stick_deadzone = true;
+            }
         } else if (key_lower == "enable_menu_patch") {
             cfg.enable_menu_patch = parse_bool(value, false);
         }
@@ -252,6 +288,17 @@ parse_active_gamepad_index(const ini_config& cfg) {
         return dash_pad_parse::gamepad_select::any;
     }
     return *parsed;
+}
+
+inline er_dash_key_parse::parsed_dash_key
+parse_movement_key(const std::string& key_name, const char* default_name) {
+    const std::string configured = key_name.empty() ? std::string(default_name) : key_name;
+    er_dash_key_parse::parsed_dash_key parsed =
+        er_dash_key_parse::parse_dash_key(configured);
+    if (!parsed.ok) {
+        parsed = er_dash_key_parse::parse_dash_key(default_name);
+    }
+    return parsed;
 }
 
 inline std::optional<er_dash_key_parse::parsed_dash_key>

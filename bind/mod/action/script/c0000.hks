@@ -4442,6 +4442,8 @@ function GetEvasionRequest()
     end
     if env(ActionRequest, ACTION_ARM_SP_MOVE) == TRUE
         and GetVariable("MoveSpeedLevel") >= 0.10000000149011612 then
+        ERSPLIT_ROLL_FROM_SP_MOVE_PRESS = 1
+        ERSplit_SampleNativeRollInputOnPress()
         return ATTACK_REQUEST_ROLLING
     end
     if ERSPLIT_SUPPRESS_RELEASE_ROLL == 1 and env(ActionRequest, ACTION_ARM_ROLLING) == TRUE then
@@ -4710,6 +4712,28 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
         end
 
         local turn_angle_real = 200
+        local rollingAngle = c_RollingAngle
+        local roll_angle_source = "current"
+
+        if ERSPLIT_ROLL_FROM_SP_MOVE_PRESS == 1 then
+            if ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID == 1
+                and ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE <= ERSPLIT_LAST_INPUT_ROLL_ANGLE_MAX_AGE then
+                rollingAngle = ERSPLIT_LAST_INPUT_ROLL_ANGLE
+                if ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE == 1 then
+                    roll_angle_source = "native_latched"
+                else
+                    roll_angle_source = "latched"
+                end
+            end
+            ERSPLIT_ROLL_FROM_SP_MOVE_PRESS = 0
+        end
+
+        local selftrans_log = 0
+        if is_selfTrans == TRUE then
+            selftrans_log = 1
+        end
+        ERSplit_Log("RollDirectionUse source=" .. roll_angle_source .. " angle=" .. rollingAngle
+            .. " selftrans=" .. selftrans_log)
 
         if GetVariable("IsLockon") == false and env(IsPrecisionShoot) == FALSE and env(IsCOMPlayer) == FALSE
             or env(GetSpEffectID, 100002) == TRUE then
@@ -4721,13 +4745,13 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
                 SetVariable("RollingDirectionIndex", 0)
             end
         elseif GetVariable("EvasionWeightIndex") == EVASION_WEIGHT_INDEX_OVERWEIGHT then
-            if c_RollingAngle <= 45 and c_RollingAngle >= -45 then
+            if rollingAngle <= 45 and rollingAngle >= -45 then
                 SetVariable("RollingOverweightIndex", 0)
-            elseif c_RollingAngle > 45 and c_RollingAngle < 135 then
+            elseif rollingAngle > 45 and rollingAngle < 135 then
                 SetVariable("RollingOverweightIndex", 3)
-            elseif c_RollingAngle >= 135 then
+            elseif rollingAngle >= 135 then
                 SetVariable("RollingOverweightIndex", 1)
-            elseif c_RollingAngle < -45 and c_RollingAngle > -135 then
+            elseif rollingAngle < -45 and rollingAngle > -135 then
                 SetVariable("RollingOverweightIndex", 2)
             else
                 SetVariable("RollingOverweightIndex", 1)
@@ -4735,7 +4759,7 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
 
             act(TurnToLockonTargetImmediately)
 
-            turn_angle_real = math.abs(GetVariable("TurnAngle") - c_RollingAngle)
+            turn_angle_real = math.abs(GetVariable("TurnAngle") - rollingAngle)
 
             if turn_angle_real > 180 then
                 turn_angle_real = 360 - turn_angle_real
@@ -4744,21 +4768,21 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
             local turn_target_angle = 0
             local rollingDirection = 0
 
-            if c_RollingAngle <= GetVariable("RollingAngleThresholdRightFrontTest") and c_RollingAngle
+            if rollingAngle <= GetVariable("RollingAngleThresholdRightFrontTest") and rollingAngle
                 >= GetVariable("RollingAngleThresholdLeftFrontTest") then
                 rollingDirection = 0
-                turn_target_angle = c_RollingAngle
-            elseif c_RollingAngle > GetVariable("RollingAngleThresholdRightFrontTest") and c_RollingAngle
+                turn_target_angle = rollingAngle
+            elseif rollingAngle > GetVariable("RollingAngleThresholdRightFrontTest") and rollingAngle
                 < GetVariable("RollingAngleThresholdRightBackTest") then
                 rollingDirection = 3
-                turn_target_angle = c_RollingAngle - 90
-            elseif c_RollingAngle < GetVariable("RollingAngleThresholdLeftFrontTest") and c_RollingAngle
+                turn_target_angle = rollingAngle - 90
+            elseif rollingAngle < GetVariable("RollingAngleThresholdLeftFrontTest") and rollingAngle
                 > GetVariable("RollingAngleThresholdLeftBackTest") then
                 rollingDirection = 2
-                turn_target_angle = c_RollingAngle + 90
+                turn_target_angle = rollingAngle + 90
             else
                 rollingDirection = 1
-                turn_target_angle = c_RollingAngle - 180
+                turn_target_angle = rollingAngle - 180
             end
 
             if is_selfTrans == TRUE then
@@ -4767,13 +4791,15 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
                 SetVariable("RollingDirectionIndex", rollingDirection)
             end
 
+            ERSplit_Log("RollDirectionIndex index=" .. rollingDirection .. " selftrans=" .. selftrans_log)
+
             if GetVariable("IsLockon") == true then
                 act(TurnToLockonTargetImmediately, turn_target_angle)
             else
                 act(FaceDirection, turn_target_angle)
             end
 
-            turn_angle_real = math.abs(GetVariable("TurnAngle") - c_RollingAngle)
+            turn_angle_real = math.abs(GetVariable("TurnAngle") - rollingAngle)
 
             if turn_angle_real > 180 then
                 turn_angle_real = 360 - turn_angle_real
@@ -4783,9 +4809,9 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
         SetVariable("TurnAngleReal", turn_angle_real)
 
         if is_selfTrans == TRUE then
-            SetVariable("RollingAngleRealSelftrans", c_RollingAngle)
+            SetVariable("RollingAngleRealSelftrans", rollingAngle)
         else
-            SetVariable("RollingAngleReal", c_RollingAngle)
+            SetVariable("RollingAngleReal", rollingAngle)
         end
 
         ExecEventAllBody(rollingEvent)
@@ -18455,6 +18481,7 @@ end
 -------------------------------
 function Update()
     GetConstVariable()
+    ERSplit_UpdateRollInputAngle()
     ERSplit_UpdatePressRollState()
     ERSplit_UpdateDashButtonNeutralActionState()
     local controller_sprint_held = 0
@@ -26768,7 +26795,6 @@ ERSPLIT_DASH_BUTTON_NEUTRAL_WAS_HELD = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_PENDING = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT_FRAMES = 0
--- Slightly shorter than full crouch settle to match vanilla uncrouch timing.
 ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT_FRAMES_DEFAULT = 10
 ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL_DEFAULT = 18
@@ -26780,6 +26806,12 @@ ERSPLIT_DASH_SPRINT_BLOCK_LOGGED = 0
 ERSPLIT_CONTROLLER_SPRINT_WAS_HELD = 0
 ERSPLIT_CONTROLLER_SPRINT_COOLDOWN = 0
 ERSPLIT_CONTROLLER_SPRINT_COOLDOWN_FRAMES = 6
+ERSPLIT_LAST_INPUT_ROLL_ANGLE = 0
+ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 0
+ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 999
+ERSPLIT_LAST_INPUT_ROLL_ANGLE_MAX_AGE = 20
+ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 0
+ERSPLIT_ROLL_FROM_SP_MOVE_PRESS = 0
 ERSPLIT_LOG_ON = 1
 ERSPLIT_LOG_COUNT = 0
 ERSPLIT_LOG_MAX = 500
@@ -27277,6 +27309,81 @@ function ERSplit_TickPressRollChainGuard()
         end
 
         ERSplit_ResetPressRollChain("chain_guard_timeout")
+    end
+end
+
+function ERSplit_GetNativeMoveBuildIdSafe()
+    local id = ERSplit_GetNativeMoveBuildIdNative()
+    if id == nil then
+        return 0
+    end
+    return id
+end
+
+function ERSplit_IsNativeMoveSamplerReady()
+    if ERSplit_GetNativeMoveBuildIdSafe() == 2 then
+        return TRUE
+    end
+    return FALSE
+end
+
+function ERSplit_SampleNativeRollInputOnPress()
+    if ERSplit_IsNativeMoveSamplerReady() ~= TRUE then
+        ERSplit_Log("RollInputAngleNativeOnPressUnavailable build_id="
+            .. ERSplit_GetNativeMoveBuildIdSafe())
+        return
+    end
+
+    local debug_code = ERSplit_GetNativeMoveDebugNative()
+    if ERSplit_IsMoveInputHeldNative() ~= 1 then
+        ERSplit_Log("RollInputAngleNativeOnPressNoInput debug=" .. debug_code)
+        return
+    end
+
+    ERSPLIT_LAST_INPUT_ROLL_ANGLE = ERSplit_GetMoveInputAngleNative()
+    ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 0
+    ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 1
+    ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 1
+    ERSplit_Log("RollInputAngleNativeOnPress angle=" .. ERSPLIT_LAST_INPUT_ROLL_ANGLE
+        .. " debug=" .. debug_code)
+end
+
+function ERSplit_UpdateRollInputAngle()
+    if ERSplit_IsNativeMoveSamplerReady() == TRUE then
+        if ERSplit_IsMoveInputHeldNative() == 1 then
+            ERSPLIT_LAST_INPUT_ROLL_ANGLE = ERSplit_GetMoveInputAngleNative()
+            ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 0
+            ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 1
+            ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 1
+            local debug_code = ERSplit_GetNativeMoveDebugNative()
+            ERSplit_Log("RollInputAngleNative angle=" .. ERSPLIT_LAST_INPUT_ROLL_ANGLE
+                .. " debug=" .. debug_code)
+            return
+        end
+
+        local debug_code = ERSplit_GetNativeMoveDebugNative()
+        ERSplit_Log("RollInputAngleNativeNoInput debug=" .. debug_code)
+    else
+        ERSplit_Log("RollInputAngleNativeUnavailable build_id=" .. ERSplit_GetNativeMoveBuildIdSafe())
+    end
+
+    local input_valid = FALSE
+    if env(MovementRequest) == TRUE or env(MovementRequestDuration) > 0 then
+        input_valid = TRUE
+    end
+
+    if input_valid == TRUE then
+        ERSPLIT_LAST_INPUT_ROLL_ANGLE = env(GetRollAngle) * 0.009999999776482582
+        ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 0
+        ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 1
+        ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 0
+        ERSplit_Log("RollInputAngleFallback angle=" .. ERSPLIT_LAST_INPUT_ROLL_ANGLE)
+    elseif ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID == 1 then
+        ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE + 1
+        if ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE > ERSPLIT_LAST_INPUT_ROLL_ANGLE_MAX_AGE then
+            ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 0
+            ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 0
+        end
     end
 end
 

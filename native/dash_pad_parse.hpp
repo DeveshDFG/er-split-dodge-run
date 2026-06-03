@@ -286,6 +286,151 @@ inline bool query_button_held(const parsed_dash_button& button, gamepad_select p
     return result.dash_held;
 }
 
+struct move_vector {
+    float x{ 0.f };
+    float y{ 0.f };
+};
+
+inline std::optional<move_vector> query_keyboard_move_vector(
+    const er_dash_key_parse::parsed_dash_key& forward,
+    const er_dash_key_parse::parsed_dash_key& back,
+    const er_dash_key_parse::parsed_dash_key& left,
+    const er_dash_key_parse::parsed_dash_key& right) {
+    move_vector vec{};
+    bool any = false;
+
+    if (forward.ok && er_dash_key_parse::query_held(forward)) {
+        vec.y += 1.f;
+        any = true;
+    }
+    if (back.ok && er_dash_key_parse::query_held(back)) {
+        vec.y -= 1.f;
+        any = true;
+    }
+    if (right.ok && er_dash_key_parse::query_held(right)) {
+        vec.x += 1.f;
+        any = true;
+    }
+    if (left.ok && er_dash_key_parse::query_held(left)) {
+        vec.x -= 1.f;
+        any = true;
+    }
+
+    if (!any) {
+        return std::nullopt;
+    }
+    return vec;
+}
+
+inline std::optional<move_vector> query_stick_move_vector(gamepad_select pad_select,
+    int movement_stick_deadzone) {
+    if (!dash_xinput::available()) {
+        return std::nullopt;
+    }
+
+    const int deadzone_sq = movement_stick_deadzone * movement_stick_deadzone;
+
+    const auto try_user = [&](DWORD user_index) -> std::optional<move_vector> {
+        XINPUT_STATE state{};
+        if (!dash_xinput::read_pad_state(user_index, state)) {
+            return std::nullopt;
+        }
+
+        const XINPUT_GAMEPAD& pad = state.Gamepad;
+        const int mag_sq = left_stick_magnitude_squared(pad);
+        if (mag_sq <= deadzone_sq) {
+            return std::nullopt;
+        }
+
+        move_vector vec{};
+        vec.x = static_cast<float>(pad.sThumbLX);
+        vec.y = static_cast<float>(pad.sThumbLY);
+        return vec;
+    };
+
+    if (pad_select != gamepad_select::any) {
+        return try_user(static_cast<DWORD>(static_cast<int>(pad_select)));
+    }
+
+    for (DWORD user = 0; user < XUSER_MAX_COUNT; ++user) {
+        if (auto vec = try_user(user)) {
+            return vec;
+        }
+    }
+    return std::nullopt;
+}
+
+struct move_input_probe {
+    bool movement_keys_ok{ false };
+    bool keyboard_valid{ false };
+    bool stick_valid{ false };
+    std::optional<move_vector> keyboard_vec;
+    std::optional<move_vector> stick_vec;
+};
+
+inline move_input_probe probe_move_input(
+    const er_dash_key_parse::parsed_dash_key& forward,
+    const er_dash_key_parse::parsed_dash_key& back,
+    const er_dash_key_parse::parsed_dash_key& left,
+    const er_dash_key_parse::parsed_dash_key& right, gamepad_select pad_select,
+    int movement_stick_deadzone) {
+    move_input_probe probe{};
+    probe.movement_keys_ok =
+        forward.ok && back.ok && left.ok && right.ok;
+    probe.keyboard_vec = query_keyboard_move_vector(forward, back, left, right);
+    probe.keyboard_valid = probe.keyboard_vec.has_value();
+    probe.stick_vec = query_stick_move_vector(pad_select, movement_stick_deadzone);
+    probe.stick_valid = probe.stick_vec.has_value();
+    return probe;
+}
+
+inline int move_debug_code(const move_input_probe& probe) {
+    if (!probe.keyboard_valid && !probe.stick_valid) {
+        return 0;
+    }
+    if (probe.keyboard_valid && probe.stick_valid) {
+        return 3;
+    }
+    if (probe.keyboard_valid) {
+        return 1;
+    }
+    return 2;
+}
+
+inline std::optional<move_vector> select_move_vector(const move_input_probe& probe) {
+    if (probe.stick_valid && probe.stick_vec) {
+        return probe.stick_vec;
+    }
+    if (probe.keyboard_valid && probe.keyboard_vec) {
+        return probe.keyboard_vec;
+    }
+    return std::nullopt;
+}
+
+inline std::optional<move_vector> query_move_input_vector(
+    const er_dash_key_parse::parsed_dash_key& forward,
+    const er_dash_key_parse::parsed_dash_key& back,
+    const er_dash_key_parse::parsed_dash_key& left,
+    const er_dash_key_parse::parsed_dash_key& right, gamepad_select pad_select,
+    int movement_stick_deadzone) {
+    const move_input_probe probe =
+        probe_move_input(forward, back, left, right, pad_select, movement_stick_deadzone);
+    return select_move_vector(probe);
+}
+
+inline float move_vector_to_roll_angle_degrees(const move_vector& vec) {
+    constexpr double kPi = 3.14159265358979323846;
+    double degrees =
+        std::atan2(static_cast<double>(vec.x), static_cast<double>(vec.y)) * 180.0 / kPi;
+    while (degrees > 180.0) {
+        degrees -= 360.0;
+    }
+    while (degrees < -180.0) {
+        degrees += 360.0;
+    }
+    return static_cast<float>(degrees);
+}
+
 inline held_snapshot query_dash_held(const er_dash_key_parse::parsed_dash_key& key,
     const parsed_dash_button& button, gamepad_select pad_select, int trigger_threshold,
     int left_stick_deadzone) {
