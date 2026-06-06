@@ -11,7 +11,6 @@ Elden Ring Mod Engine 3 mod that separates dodge, sprint, and optional controlle
 - Optional mode: hold the dodge bind after the press-roll to sprint.
 - Controller dash button can crouch/stealth when the left stick is neutral and sprint when the stick is tilted.
 - After-attack roll direction uses native keyboard/controller input instead of stale `env(GetRollAngle)`.
-- No `libER.dll` runtime dependency for normal play.
 
 ## Files
 
@@ -23,8 +22,6 @@ bind/
   separate_roll_and_sprint.ini
   mod/action/script/c0000.hks
 ```
-
-`libER.dll` and the probe DLLs are diagnostics only. They are not needed for normal play.
 
 ## Build
 
@@ -40,12 +37,6 @@ Release output:
 ```text
 native/build/Release/separate_roll_and_sprint.dll
 native/build/Release/separate_roll_and_sprint.ini
-```
-
-The release DLL should not depend on `libER.dll`. Verify if needed:
-
-```powershell
-dumpbin /DEPENDENTS native/build/Release/separate_roll_and_sprint.dll
 ```
 
 ## Install
@@ -173,4 +164,3 @@ Normal users do not need to configure movement keys in the INI.
 | `bind/` | Ready-to-copy Mod Engine 3 package |
 | `bind/mod/action/script/c0000.hks` | Deployed player HKS |
 | `native/` | C++ source for `separate_roll_and_sprint.dll` |
-| `libER/` | Optional local diagnostics / experiments |
