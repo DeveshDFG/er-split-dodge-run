@@ -7,6 +7,7 @@
 #include <MinHook.h>
 
 #include "bridge_config.hpp"
+#include "cspc_key_config_live_binds.hpp"
 #include "dash_key_parse.hpp"
 #include "dash_pad_parse.hpp"
 #include "dash_xinput.hpp"
@@ -41,8 +42,9 @@ constexpr const char* kNativeMoveBuildId = "ERSplit_GetNativeMoveBuildIdNative";
 constexpr const char* kNativeMoveDebug = "ERSplit_GetNativeMoveDebugNative";
 constexpr const char* kNativeKeyboardMoveHeld = "ERSplit_IsKeyboardMoveInputHeldNative";
 constexpr const char* kNativeControllerMoveHeld = "ERSplit_IsControllerMoveInputHeldNative";
-constexpr int kNativeMoveBuildIdValue = 2;
-constexpr const char* kNativeMoveFeatureTag = "move_input_v2";
+constexpr const char* kNativeKeepSprintOnDodgeHold = "ERSplit_KeepSprintOnDodgeHoldNative";
+constexpr int kNativeMoveBuildIdValue = 3;
+constexpr const char* kNativeMoveFeatureTag = "move_input_v3_live_cspc";
 constexpr int kHotkeyReloadIni = VK_F10;
 
 std::mutex g_log_mutex;
@@ -62,10 +64,17 @@ int g_movement_stick_deadzone{ 12000 };
 bool g_dash_button_is_left_stick_click{ false };
 bool g_dash_button_configured{ false };
 
-er_dash_key_parse::parsed_dash_key g_move_forward{};
-er_dash_key_parse::parsed_dash_key g_move_back{};
-er_dash_key_parse::parsed_dash_key g_move_left{};
-er_dash_key_parse::parsed_dash_key g_move_right{};
+er_dash_key_parse::parsed_dash_key g_move_forward_default{};
+er_dash_key_parse::parsed_dash_key g_move_back_default{};
+er_dash_key_parse::parsed_dash_key g_move_left_default{};
+er_dash_key_parse::parsed_dash_key g_move_right_default{};
+er_dash_key_parse::parsed_dash_key g_move_forward_ini{};
+er_dash_key_parse::parsed_dash_key g_move_back_ini{};
+er_dash_key_parse::parsed_dash_key g_move_left_ini{};
+er_dash_key_parse::parsed_dash_key g_move_right_ini{};
+bool g_ini_movement_override{ false };
+bool g_keep_sprint_on_dodge_hold{ false };
+std::atomic<bool> g_movement_bind_diag_logged{ false };
 
 std::atomic<int> g_last_logged_keyboard_held{ -1 };
 std::atomic<int> g_last_logged_button_held{ -1 };
@@ -131,6 +140,73 @@ std::string xinput_status_label() {
     return "loaded dll=" + dash_xinput::g_dll_name;
 }
 
+er_dash_key_parse::parsed_dash_key parsed_dash_key_from_live_vk(int vk) {
+    const std::string label = cspc_key_config_live_binds::vk_to_bind_label(vk);
+    er_dash_key_parse::parsed_dash_key parsed = er_dash_key_parse::parse_dash_key(label);
+    if (parsed.ok) {
+        return parsed;
+    }
+    parsed.ok = true;
+    parsed.normalized_name = label;
+    parsed.primary_vk = vk;
+    parsed.poll = er_dash_key_parse::poll_kind::single;
+    return parsed;
+}
+
+struct keyboard_movement_keys {
+    er_dash_key_parse::parsed_dash_key forward{};
+    er_dash_key_parse::parsed_dash_key back{};
+    er_dash_key_parse::parsed_dash_key left{};
+    er_dash_key_parse::parsed_dash_key right{};
+    const char* source{ "default" };
+};
+
+void log_movement_bind_source_once(const cspc_key_config_live_binds::resolved_live_binds& live) {
+    if (g_movement_bind_diag_logged.exchange(true)) {
+        return;
+    }
+    std::ostringstream line;
+    line << "movement_bind_source=cspc cspc=0x" << std::hex << live.instance << std::dec;
+    for (size_t i = 0; i < 4; ++i) {
+        const auto& dir = cspc_key_config_live_binds::kDirections[i];
+        const auto& sample = live.samples[i];
+        line << ' ' << dir.name << "_er=" << sample.er_id << ' ' << dir.name << "_vk="
+             << cspc_key_config_live_binds::vk_to_bind_label(sample.vk);
+    }
+    append_log(line.str());
+}
+
+keyboard_movement_keys resolve_keyboard_movement_keys() {
+    if (const auto live = cspc_key_config_live_binds::try_resolve_live_binds()) {
+        log_movement_bind_source_once(*live);
+        keyboard_movement_keys keys{};
+        keys.forward = parsed_dash_key_from_live_vk(live->samples[0].vk);
+        keys.back = parsed_dash_key_from_live_vk(live->samples[1].vk);
+        keys.left = parsed_dash_key_from_live_vk(live->samples[2].vk);
+        keys.right = parsed_dash_key_from_live_vk(live->samples[3].vk);
+        keys.source = "cspc";
+        return keys;
+    }
+
+    if (g_ini_movement_override) {
+        keyboard_movement_keys keys{};
+        keys.forward = g_move_forward_ini;
+        keys.back = g_move_back_ini;
+        keys.left = g_move_left_ini;
+        keys.right = g_move_right_ini;
+        keys.source = "ini";
+        return keys;
+    }
+
+    keyboard_movement_keys keys{};
+    keys.forward = g_move_forward_default;
+    keys.back = g_move_back_default;
+    keys.left = g_move_left_default;
+    keys.right = g_move_right_default;
+    keys.source = "default";
+    return keys;
+}
+
 void log_xinput_boot_line(std::ostringstream& boot) {
     std::string dll_name;
     if (dash_xinput::init(&dll_name)) {
@@ -159,20 +235,46 @@ bool load_dash_config_from_ini(std::ostringstream& boot, const bridge_config::in
         ? cfg.movement_stick_deadzone
         : 12000;
 
-    g_move_forward = bridge_config::parse_movement_key(
+    g_move_forward_default = bridge_config::parse_movement_key({}, "W");
+    g_move_back_default = bridge_config::parse_movement_key({}, "S");
+    g_move_left_default = bridge_config::parse_movement_key({}, "A");
+    g_move_right_default = bridge_config::parse_movement_key({}, "D");
+
+    g_ini_movement_override = cfg.has_move_forward || cfg.has_move_back || cfg.has_move_left
+        || cfg.has_move_right;
+    g_keep_sprint_on_dodge_hold =
+        cfg.has_keep_sprint_on_dodge_hold ? cfg.keep_sprint_on_dodge_hold : false;
+    boot << "keep_sprint_on_dodge_hold=" << (g_keep_sprint_on_dodge_hold ? 1 : 0) << '\n';
+    if (g_keep_sprint_on_dodge_hold) {
+        boot << "dash_key_dash_button_active=0 (ignored while keep_sprint_on_dodge_hold=1)\n";
+    } else {
+        boot << "dash_key_dash_button_active=1\n";
+    }
+    g_move_forward_ini = bridge_config::parse_movement_key(
         cfg.has_move_forward ? cfg.move_forward : std::string{}, "W");
-    g_move_back = bridge_config::parse_movement_key(
+    g_move_back_ini = bridge_config::parse_movement_key(
         cfg.has_move_back ? cfg.move_back : std::string{}, "S");
-    g_move_left = bridge_config::parse_movement_key(
+    g_move_left_ini = bridge_config::parse_movement_key(
         cfg.has_move_left ? cfg.move_left : std::string{}, "A");
-    g_move_right = bridge_config::parse_movement_key(
+    g_move_right_ini = bridge_config::parse_movement_key(
         cfg.has_move_right ? cfg.move_right : std::string{}, "D");
 
-    boot << "movement_keys forward=" << g_move_forward.normalized_name
-         << " back=" << g_move_back.normalized_name << " left=" << g_move_left.normalized_name
-         << " right=" << g_move_right.normalized_name << '\n';
-    boot << "movement_keys_ok forward=" << g_move_forward.ok << " back=" << g_move_back.ok
-         << " left=" << g_move_left.ok << " right=" << g_move_right.ok << '\n';
+    boot << "cspc_key_config_rva=0x" << std::hex
+         << cspc_key_config_live_binds::kGlobalCspcKeyConfigRva << std::dec << '\n';
+    boot << "movement_ini_override=" << (g_ini_movement_override ? 1 : 0) << '\n';
+    boot << "movement_cspc_lazy_resolve=1\n";
+    const keyboard_movement_keys keys_at_load = resolve_keyboard_movement_keys();
+    boot << "movement_bind_source_at_load=" << keys_at_load.source << " forward="
+         << keys_at_load.forward.normalized_name << " back="
+         << keys_at_load.back.normalized_name << " left=" << keys_at_load.left.normalized_name
+         << " right=" << keys_at_load.right.normalized_name << '\n';
+    if (keys_at_load.source != "cspc") {
+        boot << "movement_bind_note=CSPc null at DLL load; movement sampler retries CSPc each "
+                "poll (see movement_bind_source=cspc when ready)\n";
+    }
+    boot << "movement_keys_ok forward=" << keys_at_load.forward.ok
+         << " back=" << keys_at_load.back.ok << " left=" << keys_at_load.left.ok
+         << " right=" << keys_at_load.right.ok << '\n';
     boot << "movement_stick_deadzone=" << g_movement_stick_deadzone << '\n';
     boot << "native_move_build_id=" << kNativeMoveBuildIdValue << " feature=" << kNativeMoveFeatureTag
          << '\n';
@@ -262,8 +364,9 @@ bool query_button_pressed(int& pad_index) {
 }
 
 dash_pad_parse::move_input_probe probe_move_input_state() {
-    return dash_pad_parse::probe_move_input(g_move_forward, g_move_back, g_move_left,
-        g_move_right, g_gamepad_select, g_movement_stick_deadzone);
+    const keyboard_movement_keys keys = resolve_keyboard_movement_keys();
+    return dash_pad_parse::probe_move_input(keys.forward, keys.back, keys.left, keys.right,
+        g_gamepad_select, g_movement_stick_deadzone);
 }
 
 std::optional<float> query_move_input_angle_degrees() {
@@ -344,6 +447,10 @@ bool poll_hotkey_edge(int vk, std::atomic<bool>& was_down) {
     return down && !prev;
 }
 
+bool dash_separate_inputs_active() {
+    return !g_keep_sprint_on_dodge_hold;
+}
+
 void reload_ini_hotkey() {
     std::ostringstream out;
     out << "\n========== F10 INI reload ==========\n";
@@ -358,6 +465,10 @@ int lua_ERSplit_IsDashKeyHeldNative(HksState* state) {
     if (!g_hks_lua_pushnumber) {
         return 0;
     }
+    if (!dash_separate_inputs_active()) {
+        push_number(state, 0.f);
+        return 1;
+    }
     push_number(state, query_keyboard_held());
     return 1;
 }
@@ -365,6 +476,10 @@ int lua_ERSplit_IsDashKeyHeldNative(HksState* state) {
 int lua_ERSplit_IsDashButtonHeldNative(HksState* state) {
     if (!g_hks_lua_pushnumber) {
         return 0;
+    }
+    if (!dash_separate_inputs_active()) {
+        push_number(state, 0.f);
+        return 1;
     }
     int pad_index = -1;
     push_number(state, query_button_held(pad_index));
@@ -375,6 +490,10 @@ int lua_ERSplit_IsDashButtonNeutralHeldNative(HksState* state) {
     if (!g_hks_lua_pushnumber) {
         return 0;
     }
+    if (!dash_separate_inputs_active()) {
+        push_number(state, 0.f);
+        return 1;
+    }
     int pad_index = -1;
     push_number(state, query_button_neutral_held(pad_index));
     return 1;
@@ -383,6 +502,10 @@ int lua_ERSplit_IsDashButtonNeutralHeldNative(HksState* state) {
 int lua_ERSplit_IsDashButtonPressedNative(HksState* state) {
     if (!g_hks_lua_pushnumber) {
         return 0;
+    }
+    if (!dash_separate_inputs_active()) {
+        push_number(state, 0.f);
+        return 1;
     }
     int pad_index = -1;
     push_number(state, query_button_pressed(pad_index));
@@ -393,6 +516,10 @@ int lua_ERSplit_IsDashButtonConfiguredNative(HksState* state) {
     if (!g_hks_lua_pushnumber) {
         return 0;
     }
+    if (!dash_separate_inputs_active()) {
+        push_number(state, 0.f);
+        return 1;
+    }
     push_number(state, g_dash_button_configured);
     return 1;
 }
@@ -401,13 +528,29 @@ int lua_ERSplit_IsDashLeftStickClickNative(HksState* state) {
     if (!g_hks_lua_pushnumber) {
         return 0;
     }
+    if (!dash_separate_inputs_active()) {
+        push_number(state, 0.f);
+        return 1;
+    }
     push_number(state, g_dash_button_is_left_stick_click);
+    return 1;
+}
+
+int lua_ERSplit_KeepSprintOnDodgeHoldNative(HksState* state) {
+    if (!g_hks_lua_pushnumber) {
+        return 0;
+    }
+    push_number(state, g_keep_sprint_on_dodge_hold ? 1.f : 0.f);
     return 1;
 }
 
 int lua_ERSplit_IsDashHeldNative(HksState* state) {
     if (!g_hks_lua_pushnumber) {
         return 0;
+    }
+    if (!dash_separate_inputs_active()) {
+        push_number(state, 0.f);
+        return 1;
     }
     int pad_index = -1;
     const bool held = query_keyboard_held() || query_button_held(pad_index);
@@ -504,6 +647,8 @@ void register_native_global(HksState* state) {
             reinterpret_cast<void*>(&lua_ERSplit_IsKeyboardMoveInputHeldNative) },
         { kNativeControllerMoveHeld,
             reinterpret_cast<void*>(&lua_ERSplit_IsControllerMoveInputHeldNative) },
+        { kNativeKeepSprintOnDodgeHold,
+            reinterpret_cast<void*>(&lua_ERSplit_KeepSprintOnDodgeHoldNative) },
     };
     for (const auto& entry : natives) {
         g_hks_addnamedcclosure(state, entry.name, entry.func);
@@ -516,7 +661,7 @@ void register_native_global(HksState* state) {
                    "ERSplit_IsDashLeftStickClickNative,ERSplit_IsMoveInputHeldNative,"
                    "ERSplit_GetMoveInputAngleNative,ERSplit_GetNativeMoveBuildIdNative,"
                    "ERSplit_GetNativeMoveDebugNative,ERSplit_IsKeyboardMoveInputHeldNative,"
-                   "ERSplit_IsControllerMoveInputHeldNative");
+                   "ERSplit_IsControllerMoveInputHeldNative,ERSplit_KeepSprintOnDodgeHoldNative");
     }
 }
 
@@ -622,7 +767,7 @@ DWORD WINAPI bridge_thread(LPVOID param) {
          << kNativeDashLeftStickClick << "," << kNativeMoveInputHeld << ","
          << kNativeMoveInputAngle << "," << kNativeMoveBuildId << ","
          << kNativeMoveDebug << "," << kNativeKeyboardMoveHeld << ","
-         << kNativeControllerMoveHeld << '\n'
+         << kNativeControllerMoveHeld << "," << kNativeKeepSprintOnDodgeHold << '\n'
          << "native_move_build_id=" << kNativeMoveBuildIdValue << " feature="
          << kNativeMoveFeatureTag << '\n'
          << "poll=keyboard GetAsyncKeyState + XInput dash_button + movement_input\n"

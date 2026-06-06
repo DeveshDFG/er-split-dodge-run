@@ -45,6 +45,8 @@ struct ini_config {
     int movement_stick_deadzone{ 12000 };
     bool has_movement_stick_deadzone{ false };
     bool enable_menu_patch{ false };
+    bool keep_sprint_on_dodge_hold{ false };
+    bool has_keep_sprint_on_dodge_hold{ false };
 };
 
 inline std::string join_path(std::string dir, const char* filename) {
@@ -259,6 +261,9 @@ inline ini_config read_ini(const std::string& ini_path) {
             }
         } else if (key_lower == "enable_menu_patch") {
             cfg.enable_menu_patch = parse_bool(value, false);
+        } else if (key_lower == "keep_sprint_on_dodge_hold") {
+            cfg.keep_sprint_on_dodge_hold = parse_bool(value, false);
+            cfg.has_keep_sprint_on_dodge_hold = true;
         }
     }
     return cfg;
