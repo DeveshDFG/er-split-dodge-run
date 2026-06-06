@@ -1,0 +1,3 @@
+# Probe-confirmed GLOBAL_CSPcKeyConfig slot RVA (0x3d5dea8).
+# Overrides libER/symbols/singletons.csv when this file is present.
+64347816

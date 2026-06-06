@@ -1,22 +1,34 @@
-﻿# ER Split Instant Dodge & Separate Sprint
+# ER Split Instant Dodge & Separate Sprint
 
-Elden Ring Mod Engine 3 mod that separates **dodge roll** (press) from **sprint** (hold) on a single bind, for keyboard and controller.
+Elden Ring Mod Engine 3 mod that separates dodge, sprint, and optional controller crouch behavior while keeping Elden Ring's vanilla roll animation path.
 
-- **Roll on press** while moving — uses vanilla roll / self-transition behavior.
-- **Sprint on hold** via a dedicated dash key or controller dash button.
-- **No `libER.dll` at runtime** — only `separate_roll_and_sprint.dll` plus HKS.
+## Features
 
-## How It Works
+- Roll on press while moving.
+- Vanilla roll queue / self-transition behavior is preserved.
+- Release-triggered duplicate rolls are suppressed.
+- Sprint can use a dedicated keyboard key or controller button.
+- Optional mode: hold the dodge bind after the press-roll to sprint.
+- Controller dash button can crouch/stealth when the left stick is neutral and sprint when the stick is tilted.
+- After-attack roll direction uses native keyboard/controller input instead of stale `env(GetRollAngle)`.
+- No `libER.dll` runtime dependency for normal play.
 
-`c0000.hks` routes moving dodge input through `ACTION_ARM_SP_MOVE` so rolls execute on press through the vanilla `ExecEvasion` roll path. That keeps FromSoftware's normal `Rolling` / `Rolling_Selftrans` behavior instead of using a synthetic roll event that would mess up recovery and roll queueing (shoutout to f_wang for the roll on press code).
+## Files
 
-Release-triggered `ACTION_ARM_ROLLING` is suppressed after a press roll so hold-to-roll does not fire a second roll on button release.
+Normal Mod Engine 3 deployment uses:
 
-Sprint is removed from the original dodge hold path in `SpeedUpdate()` and is driven by `separate_roll_and_sprint.dll`, which exposes native HKS helpers backed by `separate_roll_and_sprint.ini`. Keyboard dash is sprint-only. Controller required a bit more work: dash can sprint while the stick is tilted; neutral controller dash toggles crouch/stealth with HKS lockout handling.
+```text
+bind/
+  separate_roll_and_sprint.dll
+  separate_roll_and_sprint.ini
+  mod/action/script/c0000.hks
+```
 
-## Build (native DLL)
+`libER.dll` and the probe DLLs are diagnostics only. They are not needed for normal play.
 
-Requires Visual Studio / MSVC (or clang-cl with the VS STL).
+## Build
+
+Requires Visual Studio / MSVC, or clang-cl with the Visual Studio STL.
 
 ```powershell
 cmake -S native -B native/build
@@ -25,76 +37,140 @@ cmake --build native/build --config Release
 
 Release output:
 
-- `native/build/Release/separate_roll_and_sprint.dll`
-- `native/build/Release/separate_roll_and_sprint.ini` (copied post-build)
+```text
+native/build/Release/separate_roll_and_sprint.dll
+native/build/Release/separate_roll_and_sprint.ini
+```
 
-In-game: **F10** reloads the INI. Log file: `separate_roll_and_sprint.log` (next to the DLL).
+The release DLL should not depend on `libER.dll`. Verify if needed:
 
-Legacy INI name `ERKeyAssignDashInputBridge.ini` is still read if `separate_roll_and_sprint.ini` is missing.
+```powershell
+dumpbin /DEPENDENTS native/build/Release/separate_roll_and_sprint.dll
+```
 
-**HKS sync:** Edit `bind/mod/action/script/c0000.hks`, then copy to root `c0000.hks` before committing or deploying.
+## Install
 
-## INI Example (keyboard + controller)
+Copy these into your ME3 profile's `bind` folder:
+
+```text
+separate_roll_and_sprint.dll
+separate_roll_and_sprint.ini
+mod/action/script/c0000.hks
+```
+
+Example native entry:
+
+```toml
+[[natives]]
+path = "bind/separate_roll_and_sprint.dll"
+```
+
+The HKS file in `bind/mod/action/script/c0000.hks` is the deployed script. The root `c0000.hks` is kept as a synchronized reference copy.
+
+## Configuration
+
+Example `separate_roll_and_sprint.ini`:
 
 ```ini
-; separate_roll_and_sprint — unified keyboard + controller dash config.
-
 dash_key=LeftShift
 dash_button=L3
 dash_trigger_threshold=80
 gamepad_index=any
 left_stick_dash_deadzone=12000
-
 enable_menu_patch=0
 
-; dash_key (keyboard): sprint only — never toggles crouch.
-; dash_button (controller): neutral stick = crouch/stealth, tilted stick = sprint.
-; F10 in-game: re-read this INI
+; 1 = hold the dodge bind after roll-on-press to sprint.
+; When enabled, dash_key/dash_button are ignored.
+keep_sprint_on_dodge_hold=0
 ```
 
 ### INI keys
 
 | Key | Description |
-|-----|-------------|
-| `dash_key` | Optional keyboard (`LeftShift`, `Space`, `F`, `A`–`Z`, …). **Sprint only** — never toggles crouch. |
-| `dash_button` | Optional controller (`L1`/`LB`, `L3`/`LS`, `Cross`/`A`, `L2`, `R2`, D-pad, …). |
-| `dash_trigger_threshold` | `0`–`255` for analog `L2`/`R2` (default `80`). |
-| `gamepad_index` | `any` (players 0–3) or `0`–`3`. |
-| `left_stick_dash_deadzone` | Stick magnitude below this = neutral (crouch path on controller). |
+| --- | --- |
+| `dash_key` | Optional keyboard sprint key, such as `LeftShift`, `Space`, `F`, or `A`-`Z`. |
+| `dash_button` | Optional controller sprint/crouch button, such as `L3`, `L1`, `Cross`, `Circle`, `DPadUp`, `L2`, or `R2`. |
+| `dash_trigger_threshold` | Analog trigger threshold for `L2` / `R2`, from `0` to `255`. Default: `80`. |
+| `gamepad_index` | `any`, or a specific XInput pad index from `0` to `3`. |
+| `left_stick_dash_deadzone` | Stick magnitude below this counts as neutral for controller crouch behavior. |
+| `keep_sprint_on_dodge_hold` | `0`: sprint uses `dash_key` / `dash_button`. `1`: hold dodge after roll-on-press to sprint, and `dash_key` / `dash_button` are ignored. |
+| `enable_menu_patch` | Unsupported diagnostic option. Keep `0` for normal play. |
 
-### Roll direction (after-attack)
+In-game, press `F10` to reload the INI.
 
-Movement keys default to **WASD** for after-attack roll direction sampling. Arrow keys are also supported internally. You do not need to configure movement keys in the INI for normal use.
+## Control Modes
 
-Advanced users can add `move_forward`, `move_back`, `move_left`, and `move_right` manually if they use custom keyboard movement binds (see the commented advanced section in `separate_roll_and_sprint.ini`).
+### Separate Sprint Mode
 
-Controller movement is read from the **XInput left stick** and does not require INI movement keys. Optional `movement_stick_deadzone` (default `12000`) is documented in that advanced section for controller tuning.
+```ini
+keep_sprint_on_dodge_hold=0
+```
 
-**Future research (not required for release):** discover where Elden Ring stores live keyboard movement bindings so the DLL could read in-game binds automatically. Until then, WASD defaults with optional manual override are sufficient.
+- Moving dodge press: roll immediately.
+- Holding the dodge bind: does not sprint.
+- `dash_key`: sprint.
+- `dash_button` with tilted stick: sprint.
+- `dash_button` with neutral stick: crouch/stealth toggle.
 
-**Controller `dash_button` behavior:** Native code stick-gates sprint. Button held + neutral stick -> HKS crouch/stealth toggle (with lockout/rearm). Button held + tilted stick -> sprint. After controller sprint release, HKS applies a short reactivation cooldown (`ERSPLIT_CONTROLLER_SPRINT_COOLDOWN_FRAMES` in `c0000.hks`, default 6); keyboard sprint is unaffected. Avoid binding the same physical button elsewhere in-game.
+### Dodge-Hold Sprint Mode
 
-### Controller note (XInput)
+```ini
+keep_sprint_on_dodge_hold=1
+```
 
-Windows exposes controllers through **XInput** (Xbox-style buttons). PlayStation names in the INI are **aliases** (`L1` = `LB`, `Cross` = `A`, etc.). DualSense / DualShock need Steam Input, DS4Windows, or another XInput layer.
+- Moving dodge press: roll immediately.
+- Continue holding dodge: sprint after the roll.
+- `dash_key` and `dash_button` are ignored.
+- Controller neutral `dash_button` crouch is disabled in this mode.
 
-XInput loads dynamically (`xinput1_4.dll` -> `xinput1_3.dll` -> `xinput9_1_0.dll`). If unavailable, keyboard `dash_key` still works.
+## Controller Notes
+
+Controller support uses XInput. Xbox button names and PlayStation aliases map to the same low-level inputs:
+
+```text
+A / Cross
+B / Circle
+X / Square
+Y / Triangle
+LB / L1
+RB / R1
+LT / L2
+RT / R2
+LS / L3 / LeftStick
+RS / R3 / RightStick
+Start / Options
+Back / Share / Select
+DPadUp / DPadDown / DPadLeft / DPadRight
+```
+
+DualSense and DualShock controllers need Steam Input, DS4Windows, or another XInput compatibility layer.
+
+## Roll Direction
+
+After-attack roll direction is sampled natively:
+
+- Controller direction comes from the XInput left stick.
+- Keyboard direction is read from the game's live movement binds through `GLOBAL_CSPcKeyConfig`.
+- If live movement binds are unavailable, the DLL falls back to optional INI movement overrides and then WASD defaults.
+
+Normal users do not need to configure movement keys in the INI.
+
+## Manual Test Checklist
+
+- Moving tap dodge: roll on press.
+- Release after press-roll: no second roll.
+- Fast double tap: vanilla queued roll / self-transition, not repeated animation restart.
+- Standing tap dodge: backstep.
+- After attack while locked on: roll direction follows the currently held movement input.
+- `keep_sprint_on_dodge_hold=0`: dodge hold does not sprint; `dash_key` / `dash_button` sprint as configured.
+- `keep_sprint_on_dodge_hold=1`: dodge hold sprints after rolling; `dash_key` / `dash_button` do nothing.
+- Controller separate sprint mode: neutral `dash_button` toggles crouch; tilted `dash_button` sprints.
 
 ## Repo Layout
 
 | Path | Role |
-|------|------|
-| `bind/` | Ready-to-copy ME3 deploy package |
-| `native/` | `separate_roll_and_sprint` C++ source (CMake) |
-| `c0000.hks` | Root copy of player script (keep in sync with `bind/mod/...`) |
-| `libER/` | Optional vendored experiments (not required to ship) |
-
-## Manual Test Checklist
-
-- Moving tap dodge: roll on press (vanilla animation).
-- Moving hold dodge: no sprint from dodge hold.
-- Release after press roll: no second roll (`SuppressReleaseRoll` in trace if logging enabled).
-- Fast double tap: vanilla queued roll / self-trans, not animation restart spam.
-- Standing tap: backstep (SP_MOVE roll gated by `MoveSpeedLevel`).
-- Keyboard dash hold: sprint only.
-- Controller dash neutral: crouch/stealth; tilted stick: sprint.
+| --- | --- |
+| `bind/` | Ready-to-copy Mod Engine 3 package |
+| `bind/mod/action/script/c0000.hks` | Deployed player HKS |
+| `native/` | C++ source for `separate_roll_and_sprint.dll` |
+| `libER/` | Optional local diagnostics / experiments |

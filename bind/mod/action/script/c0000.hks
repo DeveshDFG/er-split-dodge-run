@@ -4447,7 +4447,6 @@ function GetEvasionRequest()
         return ATTACK_REQUEST_ROLLING
     end
     if ERSPLIT_SUPPRESS_RELEASE_ROLL == 1 and env(ActionRequest, ACTION_ARM_ROLLING) == TRUE then
-        ERSplit_Log("SuppressReleaseRoll")
         return ATTACK_REQUEST_INVALID
     end
     if env(ActionRequest, ACTION_ARM_ROLLING) == TRUE then
@@ -4600,34 +4599,28 @@ function ERSplit_ExecPressRoll(estep)
     ERSPLIT_ROLL_ANIM_ENDED = 0
     ERSPLIT_ROLL_DEACTIVATE_PENDING = 0
     ERSPLIT_ROLL_DEACTIVATE_PENDING_FRAMES = 0
-    ERSplit_Log("PressRollAnimStart")
 
     return TRUE
 end
 
 function ExecEvasion(backstep_limit, estep, is_usechainrecover)
-    ERSplit_LogL3InputTrace("ExecEvasion")
 
     if env(ActionRequest, ACTION_ARM_L3) == TRUE and c_IsStealth == FALSE then
-        ERSplit_Log("L3StealthToggle enter_stealth")
         StealthTransitionIndexUpdate()
         ExecEvent("W_Stealth_to_Stealth_Idle")
         return TRUE
     elseif env(ActionRequest, ACTION_ARM_L3) == TRUE and c_IsStealth == TRUE then
-        ERSplit_Log("L3StealthToggle exit_stealth")
         StealthTransitionIndexUpdate()
         ExecEvent("W_Stealth_to_Idle")
         return TRUE
     end
 
-    if ERSPLIT_DASH_BUTTON_NEUTRAL_PENDING == 1 then
+    if ERSplit_KeepSprintOnDodgeHold() ~= TRUE and ERSPLIT_DASH_BUTTON_NEUTRAL_PENDING == 1 then
         ERSPLIT_DASH_BUTTON_NEUTRAL_PENDING = 0
         if c_IsStealth == FALSE then
-            ERSplit_Log("DashButtonNeutralStealthToggle enter_stealth")
             StealthTransitionIndexUpdate()
             ExecEvent("W_Stealth_to_Stealth_Idle")
         else
-            ERSplit_Log("DashButtonNeutralStealthToggle exit_stealth")
             StealthTransitionIndexUpdate()
             ExecEvent("W_Stealth_to_Idle")
         end
@@ -4635,8 +4628,6 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
         ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT_FRAMES = ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT_FRAMES_DEFAULT
         ERSPLIT_DASH_SPRINT_BLOCK_UNTIL_RELEASE = 1
         ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL = ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL_DEFAULT
-        ERSplit_Log("DashButtonNeutralLockoutStart frames=" .. ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT_FRAMES)
-        ERSplit_Log("DashButtonNeutralMinIntervalStart frames=" .. ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL_DEFAULT)
         return TRUE
     end
 
@@ -4732,8 +4723,6 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
         if is_selfTrans == TRUE then
             selftrans_log = 1
         end
-        ERSplit_Log("RollDirectionUse source=" .. roll_angle_source .. " angle=" .. rollingAngle
-            .. " selftrans=" .. selftrans_log)
 
         if GetVariable("IsLockon") == false and env(IsPrecisionShoot) == FALSE and env(IsCOMPlayer) == FALSE
             or env(GetSpEffectID, 100002) == TRUE then
@@ -4791,7 +4780,6 @@ function ExecEvasion(backstep_limit, estep, is_usechainrecover)
                 SetVariable("RollingDirectionIndex", rollingDirection)
             end
 
-            ERSplit_Log("RollDirectionIndex index=" .. rollingDirection .. " selftrans=" .. selftrans_log)
 
             if GetVariable("IsLockon") == true then
                 act(TurnToLockonTargetImmediately, turn_target_angle)
@@ -18279,8 +18267,6 @@ end
 
 function SpeedUpdate()
     local stick_level = GetVariable("MoveSpeedLevel")
-    ERSplit_TraceActionArms("SpeedUpdate")
-    ERSplit_LogL3InputTrace("SpeedUpdate")
     local dash_held = ERSplit_IsDashHeld()
 
     if dash_held == FALSE and stick_level > 1 then
@@ -18483,9 +18469,15 @@ function Update()
     GetConstVariable()
     ERSplit_UpdateRollInputAngle()
     ERSplit_UpdatePressRollState()
-    ERSplit_UpdateDashButtonNeutralActionState()
+    if ERSplit_KeepSprintOnDodgeHold() == TRUE then
+        ERSplit_ClearDashButtonNeutralState()
+    else
+        ERSplit_UpdateDashButtonNeutralActionState()
+    end
     local controller_sprint_held = 0
-    if ERSplit_IsDashButtonHeldNative ~= nil and ERSplit_IsDashButtonHeldNative() == 1 then
+    if ERSplit_KeepSprintOnDodgeHold() ~= TRUE
+        and ERSplit_IsDashButtonHeldNative ~= nil
+        and ERSplit_IsDashButtonHeldNative() == 1 then
         controller_sprint_held = 1
     end
     ERSplit_UpdateControllerSprintCooldown(controller_sprint_held)
@@ -26788,9 +26780,6 @@ ERSPLIT_ROLL_DEACTIVATE_PENDING = 0
 ERSPLIT_ROLL_DEACTIVATE_PENDING_FRAMES = 0
 ERSPLIT_ROLL_DEACTIVATE_PENDING_DEFAULT = 3
 ERSPLIT_PRESS_ROLL_UPDATE_TICK = 0
-ERSPLIT_L3_TRACE_COOLDOWN = 0
-ERSPLIT_L3_TRACE_LAST_SIG = ""
-ERSPLIT_L3_TRACE_COOLDOWN_FRAMES = 30
 ERSPLIT_DASH_BUTTON_NEUTRAL_WAS_HELD = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_PENDING = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT = 0
@@ -26802,7 +26791,6 @@ ERSPLIT_DASH_BUTTON_NEUTRAL_REARM_REQUIRED = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_NEUTRAL_FRAMES = 0
 ERSPLIT_DASH_BUTTON_NEUTRAL_NEUTRAL_FRAMES_REQUIRED = 3
 ERSPLIT_DASH_SPRINT_BLOCK_UNTIL_RELEASE = 0
-ERSPLIT_DASH_SPRINT_BLOCK_LOGGED = 0
 ERSPLIT_CONTROLLER_SPRINT_WAS_HELD = 0
 ERSPLIT_CONTROLLER_SPRINT_COOLDOWN = 0
 ERSPLIT_CONTROLLER_SPRINT_COOLDOWN_FRAMES = 6
@@ -26812,140 +26800,16 @@ ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 999
 ERSPLIT_LAST_INPUT_ROLL_ANGLE_MAX_AGE = 20
 ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 0
 ERSPLIT_ROLL_FROM_SP_MOVE_PRESS = 0
-ERSPLIT_LOG_ON = 1
-ERSPLIT_LOG_COUNT = 0
-ERSPLIT_LOG_MAX = 500
-ERSPLIT_ARM_TRACE_ON = 0
-ERSPLIT_ARM_TRACE_COUNT = 0
-ERSPLIT_ARM_TRACE_MAX = 120
+ERSPLIT_DODGE_HOLD_SPRINT_ARMED = 0
+ERSPLIT_DODGE_HOLD_SPRINT_ARM_PENDING = 0
 
-function ERSplit_InitPressRollTrace()
-    if ERSPLIT_LOG_ON ~= 1 then
-        return
-    end
-    ERSPLIT_LOG_COUNT = 0
-    local f = io.open("ERSplitPressRollTrace.txt", "w")
-    if f then
-        f:write("TRACE_START\n")
-        f:write("HKS_PRESSROLL_LOG_CANARY\n")
-        io.close(f)
-    end
-end
 
-function ERSplit_Log(text)
-    if ERSPLIT_LOG_ON ~= 1 then
-        return
-    end
-    if ERSPLIT_LOG_COUNT >= ERSPLIT_LOG_MAX then
-        return
-    end
-    ERSPLIT_LOG_COUNT = ERSPLIT_LOG_COUNT + 1
 
-    local f = io.open("ERSplitPressRollTrace.txt", "a")
-    if f then
-        f:write(text .. "\n")
-        io.close(f)
-    end
-end
 
-function ERSplit_DashArmLog(text)
-    if ERSPLIT_ARM_TRACE_ON ~= 1 then
-        return
-    end
-    if ERSPLIT_ARM_TRACE_COUNT >= ERSPLIT_ARM_TRACE_MAX then
-        return
-    end
-    ERSPLIT_ARM_TRACE_COUNT = ERSPLIT_ARM_TRACE_COUNT + 1
 
-    local f = io.open("ERSplitDashArmTrace.txt", "a")
-    if f then
-        f:write(text .. "\n")
-        io.close(f)
-    end
-end
 
-function ERSplit_TraceActionArms(tag)
-    for i = 0, 40 do
-        local req = env(ActionRequest, i)
-        local cancel = env(ActionCancelRequest, i)
-        local dur = env(ActionDuration, i)
-        local active = FALSE
-        if req == TRUE or req == 1 or cancel == TRUE or cancel == 1 or dur > 0 then
-            active = TRUE
-        end
-        if active == TRUE then
-            ERSplit_DashArmLog(tag .. "|arm=" .. i .. "|req=" .. req .. "|cancel=" .. cancel .. "|dur=" .. dur)
-        end
-    end
-end
 
-function ERSplit_Bool01(value)
-    if value == TRUE or value == 1 then
-        return 1
-    end
-    return 0
-end
 
-function ERSplit_ReadNativeDashFlags()
-    local dash_native = -1
-    local dash_button = -1
-    local dash_l3_cfg = -1
-    if ERSplit_IsDashHeldNative ~= nil then
-        dash_native = ERSplit_IsDashHeldNative()
-    end
-    if ERSplit_IsDashButtonHeldNative ~= nil then
-        dash_button = ERSplit_IsDashButtonHeldNative()
-    end
-    if ERSplit_IsDashLeftStickClickNative ~= nil then
-        dash_l3_cfg = ERSplit_IsDashLeftStickClickNative()
-    end
-    return dash_native, dash_button, dash_l3_cfg
-end
-
-function ERSplit_IsL3TraceActive()
-    local l3_req = env(ActionRequest, ACTION_ARM_L3)
-    local l3_dur = env(ActionDuration, ACTION_ARM_L3)
-    local l3_cancel = env(ActionCancelRequest, ACTION_ARM_L3)
-    if l3_req == TRUE or l3_req == 1 or l3_dur > 0 or l3_cancel == TRUE or l3_cancel == 1 then
-        return TRUE
-    end
-    local dash_native, dash_button, dash_l3_cfg = ERSplit_ReadNativeDashFlags()
-    if dash_native == 1 or dash_button == 1 then
-        return TRUE
-    end
-    return FALSE
-end
-
-function ERSplit_LogL3InputTrace(tag)
-    if ERSPLIT_LOG_ON ~= 1 then
-        return
-    end
-    if ERSplit_IsL3TraceActive() ~= TRUE then
-        return
-    end
-
-    local l3_req = ERSplit_Bool01(env(ActionRequest, ACTION_ARM_L3))
-    local l3_dur = env(ActionDuration, ACTION_ARM_L3)
-    local l3_cancel = ERSplit_Bool01(env(ActionCancelRequest, ACTION_ARM_L3))
-    local dash_native, dash_button, dash_l3_cfg = ERSplit_ReadNativeDashFlags()
-    local has_req = ERSplit_Bool01(c_HasActionRequest)
-    local stealth = ERSplit_Bool01(c_IsStealth)
-    local msl = GetVariable("MoveSpeedLevel")
-
-    local sig = tag .. "|l3_req=" .. l3_req .. "|l3_dur=" .. l3_dur .. "|l3_cancel=" .. l3_cancel
-        .. "|dash_native=" .. dash_native .. "|dash_button=" .. dash_button
-        .. "|dash_l3_cfg=" .. dash_l3_cfg .. "|has=" .. has_req .. "|stealth=" .. stealth
-        .. "|msl=" .. msl
-
-    if sig == ERSPLIT_L3_TRACE_LAST_SIG and ERSPLIT_L3_TRACE_COOLDOWN > 0 then
-        ERSPLIT_L3_TRACE_COOLDOWN = ERSPLIT_L3_TRACE_COOLDOWN - 1
-        return
-    end
-
-    ERSPLIT_L3_TRACE_LAST_SIG = sig
-    ERSPLIT_L3_TRACE_COOLDOWN = ERSPLIT_L3_TRACE_COOLDOWN_FRAMES
-    ERSplit_Log("L3InputTrace " .. sig)
-end
 
 function ERSplit_IsControllerDashButtonHeld()
     if ERSplit_IsDashButtonPressedNative ~= nil and ERSplit_IsDashButtonPressedNative() == 1 then
@@ -26963,36 +26827,52 @@ end
 function ERSplit_UpdateControllerSprintCooldown(controller_held)
     if controller_held == 1 and ERSPLIT_CONTROLLER_SPRINT_WAS_HELD == 0 then
         if ERSPLIT_CONTROLLER_SPRINT_COOLDOWN > 0 then
-            ERSplit_Log("ControllerSprintBlockedCooldown frames_remaining="
-                .. ERSPLIT_CONTROLLER_SPRINT_COOLDOWN)
         end
     end
 
     if controller_held == 0 and ERSPLIT_CONTROLLER_SPRINT_WAS_HELD == 1 then
         ERSPLIT_CONTROLLER_SPRINT_COOLDOWN = ERSPLIT_CONTROLLER_SPRINT_COOLDOWN_FRAMES
-        ERSplit_Log("ControllerSprintCooldownStart frames=" .. ERSPLIT_CONTROLLER_SPRINT_COOLDOWN_FRAMES)
     elseif ERSPLIT_CONTROLLER_SPRINT_COOLDOWN > 0 then
         ERSPLIT_CONTROLLER_SPRINT_COOLDOWN = ERSPLIT_CONTROLLER_SPRINT_COOLDOWN - 1
         if ERSPLIT_CONTROLLER_SPRINT_COOLDOWN == 0 then
-            ERSplit_Log("ControllerSprintCooldownEnd")
         end
     end
 
     ERSPLIT_CONTROLLER_SPRINT_WAS_HELD = controller_held
 end
 
+function ERSplit_KeepSprintOnDodgeHold()
+    if ERSplit_KeepSprintOnDodgeHoldNative ~= nil and ERSplit_KeepSprintOnDodgeHoldNative() == 1 then
+        return TRUE
+    end
+    return FALSE
+end
+
+function ERSplit_ClearDashButtonNeutralState()
+    ERSPLIT_DASH_BUTTON_NEUTRAL_WAS_HELD = 0
+    ERSPLIT_DASH_BUTTON_NEUTRAL_PENDING = 0
+    ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT = 0
+    ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT_FRAMES = 0
+    ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL = 0
+    ERSPLIT_DASH_BUTTON_NEUTRAL_REARM_REQUIRED = 0
+    ERSPLIT_DASH_BUTTON_NEUTRAL_NEUTRAL_FRAMES = 0
+    ERSPLIT_DASH_SPRINT_BLOCK_UNTIL_RELEASE = 0
+end
+
 function ERSplit_IsDashHeld()
+    if ERSplit_KeepSprintOnDodgeHold() == TRUE then
+        if ERSPLIT_DODGE_HOLD_SPRINT_ARMED == 1
+            and env(ActionDuration, ACTION_ARM_SP_MOVE) > 0 then
+            return TRUE
+        end
+        return FALSE
+    end
+
     if ERSPLIT_DASH_SPRINT_BLOCK_UNTIL_RELEASE == 1 then
         if ERSplit_IsControllerDashButtonHeld() == TRUE then
-            if ERSPLIT_DASH_SPRINT_BLOCK_LOGGED ~= 1 then
-                ERSPLIT_DASH_SPRINT_BLOCK_LOGGED = 1
-                ERSplit_Log("DashSprintBlockedUntilControllerRelease")
-            end
             return FALSE
         end
         ERSPLIT_DASH_SPRINT_BLOCK_UNTIL_RELEASE = 0
-        ERSPLIT_DASH_SPRINT_BLOCK_LOGGED = 0
-        ERSplit_Log("DashSprintRearmedAfterControllerRelease")
     end
 
     local keyboard_held = 0
@@ -27012,6 +26892,7 @@ function ERSplit_IsDashHeld()
     if keyboard_held == 1 or controller_held == 1 then
         return TRUE
     end
+
     return FALSE
 end
 
@@ -27057,7 +26938,6 @@ function ERSplit_TickDashButtonNeutralRearm(held)
     if ERSPLIT_DASH_BUTTON_NEUTRAL_NEUTRAL_FRAMES >= ERSPLIT_DASH_BUTTON_NEUTRAL_NEUTRAL_FRAMES_REQUIRED then
         ERSPLIT_DASH_BUTTON_NEUTRAL_REARM_REQUIRED = 0
         ERSPLIT_DASH_BUTTON_NEUTRAL_NEUTRAL_FRAMES = 0
-        ERSplit_Log("DashButtonNeutralRearmComplete")
     end
 end
 
@@ -27082,16 +26962,10 @@ function ERSplit_UpdateDashButtonNeutralActionState()
 
     if held == 1 and ERSPLIT_DASH_BUTTON_NEUTRAL_WAS_HELD == 0 then
         if ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT == 1 then
-            ERSplit_Log("DashButtonNeutralBlockedLockout frames_remaining="
-                .. ERSPLIT_DASH_BUTTON_NEUTRAL_LOCKOUT_FRAMES)
         elseif ERSPLIT_DASH_BUTTON_NEUTRAL_REARM_REQUIRED == 1 then
-            ERSplit_Log("DashButtonNeutralBlockedLockout frames_remaining=rearm")
         elseif ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL > 0 then
-            ERSplit_Log("DashButtonNeutralBlockedMinInterval frames_remaining="
-                .. ERSPLIT_DASH_BUTTON_NEUTRAL_MIN_INTERVAL)
         else
             ERSPLIT_DASH_BUTTON_NEUTRAL_PENDING = 1
-            ERSplit_Log("DashButtonNeutralActionPending")
         end
     end
 
@@ -27122,8 +26996,6 @@ function ERSplit_GetPressRollLockoutFrames()
     end
 
     ERSPLIT_PRESS_ROLL_LOCKOUT_WEIGHT_NAME = weight_name
-    ERSplit_Log("PressRollLockoutFrames weight=" .. weight_name .. " index=" .. evasion_weight .. " frames="
-        .. frames)
     return frames
 end
 
@@ -27171,16 +27043,13 @@ function ERSplit_EndPressRollLockout(reason)
     end
     ERSPLIT_PRESS_ROLL_LOCKOUT = 0
     ERSPLIT_PRESS_ROLL_LOCKOUT_FRAMES = 0
-    ERSplit_Log("PressRollLockoutEnd reason=" .. reason)
     if reason == "timeout" then
         ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = 0
         if ERSPLIT_PRESS_ROLL_QUEUE_BUFFERED == 1 then
             ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
-            ERSplit_Log("PressRollQueuedNativeArmed")
         else
             ERSPLIT_PRESS_ROLL_REARM_REQUIRED = 1
             ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
-            ERSplit_Log("PressRollRearmStart")
         end
     end
 end
@@ -27197,13 +27066,11 @@ function ERSplit_TickPressRollRearm(held)
     end
 
     ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES + 1
-    ERSplit_Log("PressRollRearmNeutral frames=" .. ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES)
 
     if ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES >= ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES_REQUIRED then
         ERSPLIT_PRESS_ROLL_REARM_REQUIRED = 0
         ERSPLIT_PRESS_ROLL_NEUTRAL_FRAMES = 0
         ERSPLIT_SUPPRESS_RELEASE_ROLL = 0
-        ERSplit_Log("PressRollRearmComplete")
     end
 end
 
@@ -27245,7 +27112,6 @@ function ERSplit_ResetPressRollChain(reason)
     ERSPLIT_ROLL_ANIM_ACTIVE = 0
     ERSPLIT_ROLL_DEACTIVATE_PENDING = 0
     ERSPLIT_ROLL_DEACTIVATE_PENDING_FRAMES = 0
-    ERSplit_Log("PressRollChainReset reason=" .. reason)
 end
 
 function ERSplit_MarkRollDeactivate(reason)
@@ -27254,7 +27120,6 @@ function ERSplit_MarkRollDeactivate(reason)
     end
     ERSPLIT_ROLL_DEACTIVATE_PENDING = 1
     ERSPLIT_ROLL_DEACTIVATE_PENDING_FRAMES = ERSPLIT_ROLL_DEACTIVATE_PENDING_DEFAULT
-    ERSplit_Log("PressRollDeactivatePending reason=" .. reason)
 end
 
 function ERSplit_OnRollAnimEnd(reason)
@@ -27264,11 +27129,9 @@ function ERSplit_OnRollAnimEnd(reason)
     ERSPLIT_ROLL_ANIM_ENDED = 1
     ERSPLIT_ROLL_DEACTIVATE_PENDING = 0
     ERSPLIT_ROLL_DEACTIVATE_PENDING_FRAMES = 0
-    ERSplit_Log("PressRollAnimEnd reason=" .. reason)
 
     if ERSPLIT_PRESS_ROLL_CHAIN_COUNT >= 2 and reason == "rolling_deactivate_finalized" then
         ERSPLIT_ROLL_ANIM_ACTIVE = 0
-        ERSplit_Log("PressRollChainHeldAfterQueuedDeactivate")
         return
     end
 
@@ -27304,7 +27167,6 @@ function ERSplit_TickPressRollChainGuard()
     if ERSPLIT_PRESS_ROLL_CHAIN_GUARD_FRAMES <= 0 then
         if ERSPLIT_ROLL_ANIM_ACTIVE == 1 or IsNodeActive("Rolling_CMSG") == TRUE then
             ERSPLIT_PRESS_ROLL_CHAIN_GUARD_FRAMES = 1
-            ERSplit_Log("PressRollChainGuardHeldAnimActive")
             return
         end
 
@@ -27321,7 +27183,8 @@ function ERSplit_GetNativeMoveBuildIdSafe()
 end
 
 function ERSplit_IsNativeMoveSamplerReady()
-    if ERSplit_GetNativeMoveBuildIdSafe() == 2 then
+    local id = ERSplit_GetNativeMoveBuildIdSafe()
+    if id >= 2 then
         return TRUE
     end
     return FALSE
@@ -27329,14 +27192,10 @@ end
 
 function ERSplit_SampleNativeRollInputOnPress()
     if ERSplit_IsNativeMoveSamplerReady() ~= TRUE then
-        ERSplit_Log("RollInputAngleNativeOnPressUnavailable build_id="
-            .. ERSplit_GetNativeMoveBuildIdSafe())
         return
     end
 
-    local debug_code = ERSplit_GetNativeMoveDebugNative()
     if ERSplit_IsMoveInputHeldNative() ~= 1 then
-        ERSplit_Log("RollInputAngleNativeOnPressNoInput debug=" .. debug_code)
         return
     end
 
@@ -27344,8 +27203,6 @@ function ERSplit_SampleNativeRollInputOnPress()
     ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 0
     ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 1
     ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 1
-    ERSplit_Log("RollInputAngleNativeOnPress angle=" .. ERSPLIT_LAST_INPUT_ROLL_ANGLE
-        .. " debug=" .. debug_code)
 end
 
 function ERSplit_UpdateRollInputAngle()
@@ -27355,16 +27212,8 @@ function ERSplit_UpdateRollInputAngle()
             ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 0
             ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 1
             ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 1
-            local debug_code = ERSplit_GetNativeMoveDebugNative()
-            ERSplit_Log("RollInputAngleNative angle=" .. ERSPLIT_LAST_INPUT_ROLL_ANGLE
-                .. " debug=" .. debug_code)
             return
         end
-
-        local debug_code = ERSplit_GetNativeMoveDebugNative()
-        ERSplit_Log("RollInputAngleNativeNoInput debug=" .. debug_code)
-    else
-        ERSplit_Log("RollInputAngleNativeUnavailable build_id=" .. ERSplit_GetNativeMoveBuildIdSafe())
     end
 
     local input_valid = FALSE
@@ -27377,7 +27226,6 @@ function ERSplit_UpdateRollInputAngle()
         ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = 0
         ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID = 1
         ERSPLIT_LAST_INPUT_ROLL_ANGLE_NATIVE = 0
-        ERSplit_Log("RollInputAngleFallback angle=" .. ERSPLIT_LAST_INPUT_ROLL_ANGLE)
     elseif ERSPLIT_LAST_INPUT_ROLL_ANGLE_VALID == 1 then
         ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE = ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE + 1
         if ERSPLIT_LAST_INPUT_ROLL_ANGLE_AGE > ERSPLIT_LAST_INPUT_ROLL_ANGLE_MAX_AGE then
@@ -27397,22 +27245,33 @@ function ERSplit_UpdatePressRollState()
     end
 
     if held == 1 and ERSPLIT_SP_WAS_HELD == 0 then
-        ERSplit_Log("PressEdgeDetected frame=" .. ERSPLIT_PRESS_ROLL_UPDATE_TICK .. "|dur=" .. dur)
         if GetVariable("MoveSpeedLevel") >= 0.10000000149011612 then
             ERSPLIT_SUPPRESS_RELEASE_ROLL = 1
-            ERSplit_Log("PressRollSuppressReleaseOnPress")
+            if ERSplit_KeepSprintOnDodgeHold() == TRUE then
+                ERSPLIT_DODGE_HOLD_SPRINT_ARM_PENDING = 1
+            end
+        end
+    elseif held == 1 and ERSPLIT_DODGE_HOLD_SPRINT_ARM_PENDING == 1 then
+        if ERSplit_KeepSprintOnDodgeHold() == TRUE and ERSPLIT_SUPPRESS_RELEASE_ROLL == 1 then
+            ERSPLIT_DODGE_HOLD_SPRINT_ARMED = 1
+            ERSPLIT_DODGE_HOLD_SPRINT_ARM_PENDING = 0
         end
     elseif held == 0 and ERSPLIT_SP_WAS_HELD == 1 then
         if ERSPLIT_SUPPRESS_RELEASE_ROLL == 1 then
             ERSPLIT_SUPPRESS_RELEASE_ROLL = 0
-            ERSplit_Log("PressRollSuppressReleaseCleared")
         end
+        ERSPLIT_DODGE_HOLD_SPRINT_ARMED = 0
+        ERSPLIT_DODGE_HOLD_SPRINT_ARM_PENDING = 0
+    end
+
+    if dur <= 0 then
+        ERSPLIT_DODGE_HOLD_SPRINT_ARMED = 0
+        ERSPLIT_DODGE_HOLD_SPRINT_ARM_PENDING = 0
     end
 
     ERSPLIT_SP_WAS_HELD = held
 end
 
-ERSplit_InitPressRollTrace()
 
 ------------------------------------------
 -- Must be last for the global variables to be read

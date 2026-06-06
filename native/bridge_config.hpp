@@ -16,7 +16,6 @@ namespace bridge_config {
 
 inline constexpr const char* kIniNamePreferred = "separate_roll_and_sprint.ini";
 inline constexpr const char* kIniNameLegacy = "ERKeyAssignDashInputBridge.ini";
-inline constexpr const char* kLogName = "separate_roll_and_sprint.log";
 inline constexpr const char* kBindDirEnv = "ER_SPLIT_BIND_DIR";
 inline constexpr const char* kMe3ProfileEnv = "ER_SPLIT_ME3_PROFILE";
 inline constexpr const char* kDefaultMe3Profile = "bindtest";
